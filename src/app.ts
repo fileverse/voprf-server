@@ -1,4 +1,4 @@
-import express from "express";
+import express, { Request, Response } from "express";
 
 import cors from "cors";
 import helmet from "helmet";
@@ -28,7 +28,7 @@ app.use(
 );
 
 // This is to check if the service is online or not
-app.use("/ping", function (req, res) {
+app.use("/ping", function (req: Request, res: Response) {
   res.json({ reply: "pong" });
   res.end();
 });
