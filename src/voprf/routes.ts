@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { fromUint8Array, toUint8Array } from "js-base64";
 import { Oprf, VOPRFServer, EvaluationRequest } from "@cloudflare/voprf-ts";
 import { config } from "../config";
+import { logger } from "../logger";
 
 const suite = Oprf.Suite.P256_SHA256;
 
@@ -13,7 +14,7 @@ export function getPublicKey(req: Request, res: Response): void {
       suite,
     });
   } catch (error) {
-    console.error("Error getting public key:", error);
+    logger.error("Error getting public key:", error);
     res.status(500).json({
       error: "Failed to get public key",
       message: error instanceof Error ? error.message : "Unknown error",
@@ -27,9 +28,7 @@ export async function blindEvaluate(
   res: Response
 ): Promise<void> {
   try {
-    console.log(req.body);
     const { evaluationRequest } = req.body;
-    console.log("evaluationRequest", evaluationRequest);
 
     if (!evaluationRequest || typeof evaluationRequest !== "string") {
       res.status(400).json({
@@ -56,7 +55,7 @@ export async function blindEvaluate(
       evaluation: fromUint8Array(evaluationData),
     });
   } catch (error) {
-    console.error("Error during blind evaluation:", error);
+    logger.error("Error during blind evaluation:", error);
     res.status(500).json({
       error: "Blind evaluation failed",
       message: error instanceof Error ? error.message : "Unknown error",

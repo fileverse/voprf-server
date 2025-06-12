@@ -1,6 +1,7 @@
 import { config } from "./config";
 
 import app from "./app";
+import { logger } from "./logger";
 
 // Here you set the PORT and IP of the server
 const port = config.PORT || 8001;
@@ -12,12 +13,10 @@ async function startServer() {
 
     // Start the HTTP server
     app.listen(port, () =>
-      // eslint-disable-next-line no-console
-      console.log(`🚀 Server ready on port ${port}`)
+      logger.info(`🚀 Server ready on port ${port}`)
     );
   } catch (error) {
-    // eslint-disable-next-line no-console
-    console.error("Failed to start server:", error);
+    logger.error("Failed to start server:", error);
     process.exit(1);
   }
 }
