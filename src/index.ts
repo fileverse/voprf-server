@@ -2,19 +2,34 @@ import { config } from "./config";
 
 import app from "./app";
 import { logger } from "./logger";
+import { loadGateKeys, getGateMasterKey } from "./infra/gate-keys";
+import { connectGateDatastore } from "./infra/database";
 
-// Here you set the PORT and IP of the server
 const port = config.PORT || 8001;
 
-// Initialize VOPRF server and start the HTTP server
 async function startServer() {
   try {
-    // Initialize VOPRF server
+    // Fatal: a malformed gate key (or the dev override in production) must refuse to boot.
+    loadGateKeys();
+    if (!getGateMasterKey()) {
+      logger.warn("gate: GATE_MASTER_KEY is not set — /register, /share and /release will respond 503");
+    }
 
-    // Start the HTTP server
-    app.listen(port, () =>
-      logger.info(`🚀 Server ready on port ${port}`)
-    );
+    if (config.MONGO_URI) {
+      void connectGateDatastore(config.MONGO_URI);
+    } else {
+      logger.warn("gate: MONGO_URI is not set — /gate routes will respond 503");
+    }
+
+    // Non-fatal: the viem client is created lazily, so missing NETWORK/RPC_URL only
+    // fails the gate's owner-verification path — VOPRF stays live.
+    if (!config.NETWORK || !config.RPC_URL) {
+      logger.warn(
+        "gate: NETWORK/RPC_URL not fully configured — gate chain reads (owner verification) will fail until set"
+      );
+    }
+
+    app.listen(port, () => logger.info(`🚀 Server ready on port ${port}`));
   } catch (error) {
     logger.error("Failed to start server:", error);
     process.exit(1);
