@@ -46,6 +46,36 @@ export const validateVoucherClaims = async (
 };
 
 /**
+ * Group-scoped voucher validation: same as validateVoucherClaims but the voucher is
+ * bound to a GROUP (fct.groupRef === groupRef), not a doc. The UCAN hierPart is the
+ * groupRef (validateGateUcan's `docId` param is really the hierPart). No docId in the
+ * claim — a group voucher is reusable across every doc the group is attached to.
+ */
+export const validateGroupVoucherClaims = async (
+  voucher: string,
+  groupRef: string
+): Promise<{ issuerDid: string; claims: VoucherClaims }> => {
+  const { issuerDid, facts } = await validateGateUcan(voucher, groupRef, "INVITE");
+  const fact = facts.find((f) => typeof f.idHash === "string");
+  if (!fact) return throwError({ code: 403, message: GateErrorCode.INVALID_VOUCHER });
+
+  if (fact.v !== 1) return throwError({ code: 403, message: GateErrorCode.INVALID_VOUCHER });
+  if (fact.groupRef !== groupRef) {
+    return throwError({ code: 403, message: GateErrorCode.VOUCHER_GROUP_MISMATCH });
+  }
+  const salt = fact.salt;
+  const idHash = fact.idHash;
+  const role = fact.role;
+  if (typeof salt !== "string" || typeof idHash !== "string") {
+    return throwError({ code: 403, message: GateErrorCode.INVALID_VOUCHER });
+  }
+  if (role !== "view" && role !== "comment") {
+    return throwError({ code: 403, message: GateErrorCode.INVALID_VOUCHER_ROLE });
+  }
+  return { issuerDid, claims: { docId: "", groupRef, salt, idHash, role } };
+};
+
+/**
  * BIND: does any Privy-attested identifier hash (with the owner-signed salt) to the
  * voucher's idHash? salt is the literal base64 string, never decoded bytes.
  */

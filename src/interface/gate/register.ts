@@ -5,7 +5,7 @@ import { validate, Joi } from "../middleware";
 import { throwError } from "../../infra/error-handler";
 import { GateErrorCode } from "../../infra/gate-errors";
 import { getGateMasterKey } from "../../infra/gate-keys";
-import { assertOwnerAuthorized, registerGateDoc } from "../../domain/gate";
+import { assertOwnerAuthorized, getGateGroup, registerGateDoc } from "../../domain/gate";
 import type { GateAcceptedRoot, GateAnchorRef } from "../../infra/database/models";
 import { docIdField } from "./validation";
 
@@ -42,12 +42,24 @@ async function registerDoc(req: Request, res: Response): Promise<void> {
     anchorRef: GateAnchorRef;
   };
 
-  // Fail closed: every accepted root must reference THIS doc's group.
-  if (acceptedRoots.some((root) => root.groupRef !== docId)) {
-    return throwError({
-      code: 400,
-      message: GateErrorCode.INVALID_ACCEPTED_ROOTS,
-    });
+  // Fail closed: every accepted root must reference THIS doc's own implicit group
+  // (groupRef === docId, always allowed) OR a previously-registered named group on the
+  // SAME host portal (cross-portal rule, mirroring attach.ts — otherwise the owner could
+  // route a foreign portal's group root onto their doc).
+  const nonSelfRefs = [...new Set(acceptedRoots.map((root) => root.groupRef).filter((ref) => ref !== docId))];
+  for (const groupRef of nonSelfRefs) {
+    const group = await getGateGroup(groupRef);
+    if (!group) {
+      return throwError({
+        code: 400,
+        message: GateErrorCode.INVALID_ACCEPTED_ROOTS,
+      });
+    }
+    // Stored portals are lowercased at group-register; lowercase the incoming side so the
+    // comparison is byte-canonical (the body's portalAddress is not yet normalized here).
+    if (group.anchorRef.portalAddress !== anchorRef.portalAddress.toLowerCase()) {
+      return throwError({ code: 403, message: GateErrorCode.CROSS_PORTAL_ATTACH });
+    }
   }
 
   if (!getGateMasterKey()) {

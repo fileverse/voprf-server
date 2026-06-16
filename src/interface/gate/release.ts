@@ -9,16 +9,16 @@ import { throwError } from "../../infra/error-handler";
 import { GateErrorCode } from "../../infra/gate-errors";
 import { getGateMasterKey } from "../../infra/gate-keys";
 import {
-  assertCurrentRoot,
   assertProofScope,
   assertProofValid,
-  computeGroupRoot,
+  assertRootInSet,
   consumeGateNonce,
   deriveGateShare,
   getGateDoc,
   listLiveNonces,
   matchNonceByEncodedMessage,
   parseProofShape,
+  resolveAcceptedRoots,
 } from "../../domain/gate";
 import { docIdField } from "./validation";
 
@@ -51,7 +51,10 @@ async function releaseGateShare(req: Request, res: Response): Promise<void> {
     return throwError({ code: 403, message: GateErrorCode.NONCE_NOT_LIVE });
   }
 
-  assertCurrentRoot(shape, computeGroupRoot(doc.members));
+  // Additive implicit group: accept the proof if its root is in the UNION of the
+  // doc's own implicit-group root + each attached group's root (groups-semaphore §3).
+  const currentRoots = await resolveAcceptedRoots(doc);
+  assertRootInSet(shape, currentRoots);
   await assertProofValid(shape);
 
   // The gate's OWN currentEpoch — the client never supplies one (anti-pre-fetch).

@@ -4,7 +4,7 @@
 // Capability shape mirrors the client mint: with {scheme:'gate', hierPart:docId},
 // can {namespace:'gate', segments:['ADMIN'|'INVITE']}.
 import * as ucans from "@ucans/ucans";
-import { readOnChainOwnerDid } from "../../infra/chain/portal-reader";
+import { readOnChainOwnerDid, readOnChainPortalOwnerDid } from "../../infra/chain/portal-reader";
 import { throwError } from "../../infra/error-handler";
 import { GateErrorCode } from "../../infra/gate-errors";
 import type { GateAnchorRef } from "../../infra/database/models";
@@ -84,4 +84,35 @@ export const assertIssuerIsOnChainOwner = async (
   if (issuerDid !== ownerDid) {
     throwError({ code: 403, message });
   }
+};
+
+/**
+ * Group-INVITE-path owner cross-check: the group voucher issuer must be the live
+ * on-chain PORTAL owner (personal: the user; team: the workspace ASA). Mirrors
+ * assertIssuerIsOnChainOwner but reads the portal owner, not a file owner.
+ */
+export const assertIssuerIsOnChainPortalOwner = async (
+  issuerDid: string,
+  anchorRef: GateAnchorRef,
+  message: string
+): Promise<void> => {
+  const ownerDid = await readOnChainPortalOwnerDid(anchorRef);
+  if (issuerDid !== ownerDid) {
+    throwError({ code: 403, message });
+  }
+};
+
+/**
+ * Group admin (register/revoke) authorization: capability (gate/ADMIN on the
+ * groupRef hierPart) + LIVE on-chain PORTAL owner cross-check. The validateGateUcan
+ * `docId` param is really the hierPart resource-id — for groups it's the groupRef.
+ */
+export const assertGroupOwnerAuthorized = async (
+  token: string,
+  groupRef: string,
+  anchorRef: GateAnchorRef
+): Promise<string> => {
+  const { issuerDid } = await validateGateUcan(token, groupRef, "ADMIN");
+  await assertIssuerIsOnChainPortalOwner(issuerDid, anchorRef, GateErrorCode.NOT_DOC_OWNER);
+  return issuerDid;
 };

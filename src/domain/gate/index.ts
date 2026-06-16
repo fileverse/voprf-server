@@ -15,10 +15,28 @@ export {
   assertProofScope,
   matchNonceByEncodedMessage,
   assertCurrentRoot,
+  assertRootInSet,
   assertProofValid,
 } from "./proof-verification";
 export type { SemaphoreProofShape } from "./proof-verification";
-export { validateGateUcan, assertOwnerAuthorized, assertIssuerIsOnChainOwner } from "./owner-auth";
+
+// Standalone reusable groups (groups-semaphore Phase 1).
+export { getGateGroup } from "./group-get";
+export { registerGateGroup } from "./group-register";
+export type { GroupRegisterOutcome } from "./group-register";
+export { appendGroupEnrollment } from "./group-enroll";
+export { revokeGateGroupMember } from "./group-revoke";
+export type { GroupRevokeOutcome } from "./group-revoke";
+export { attachGroupToDoc, detachGroupFromDoc } from "./group-attach";
+export type { AttachOutcome } from "./group-attach";
+export { resolveAcceptedRoots } from "./resolve-roots";
+export {
+  validateGateUcan,
+  assertOwnerAuthorized,
+  assertIssuerIsOnChainOwner,
+  assertIssuerIsOnChainPortalOwner,
+  assertGroupOwnerAuthorized,
+} from "./owner-auth";
 export type { GateAbilitySegment, ValidatedGateUcan } from "./owner-auth";
-export { validateVoucherClaims, bindsToAttestedIdentifier } from "./enroll-verification";
+export { validateVoucherClaims, validateGroupVoucherClaims, bindsToAttestedIdentifier } from "./enroll-verification";
 export type { VoucherClaims } from "./enroll-verification";

@@ -20,6 +20,27 @@ export const docIdField = () =>
       return value;
     });
 
+// groupRef is the voucher UCAN hierPart; same ≤31-UTF-8-byte rule as docIdField (the
+// client mints shortUUIDs, comfortably under the ceiling). The charset is restricted to
+// the shortUUID alphabet (alphanumeric plus `_`/`-`) so a groupRef can never carry a `/`
+// or other path/scope-breaking byte.
+const GROUP_REF_MAX_UTF8_BYTES = 31;
+const GROUP_REF_CHARSET = /^[A-Za-z0-9_-]+$/;
+
+/** Required groupRef string, ≤31 UTF-8 bytes, shortUUID charset. */
+export const groupRefField = () =>
+  Joi.string()
+    .required()
+    .custom((value: string, helpers) => {
+      if (Buffer.byteLength(value, "utf8") > GROUP_REF_MAX_UTF8_BYTES) {
+        return helpers.message({ custom: GateErrorCode.INVALID_GROUP_REF });
+      }
+      if (!GROUP_REF_CHARSET.test(value)) {
+        return helpers.message({ custom: GateErrorCode.INVALID_GROUP_REF });
+      }
+      return value;
+    });
+
 /** Required canonical-decimal bigint string — shares the domain rule with release. */
 export const commitmentField = () =>
   Joi.string()

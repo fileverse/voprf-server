@@ -300,6 +300,48 @@ const main = async (): Promise<void> => {
       return { token, idHash };
     };
 
+    // ---- group-scoped client mint replicas (NEW client path: groups-semaphore) ----
+    // Client mint replica (owner-ucan.ts mintGroupOwnerUcan): SELF-audience, gate/ADMIN
+    // on the GROUP hierPart (groupId), 5-min life. Used for /group/register, /revoke,
+    // and to authorize /doc/:docId/attach is the DOC-scoped admin UCAN (mintAdminUcan).
+    const mintGroupAdminUcan = async (
+      groupId: string,
+      keypair: ucans.EdKeypair = ownerKeypair
+    ): Promise<string> =>
+      ucans.encode(
+        await ucans.build({
+          audience: keypair.did(),
+          issuer: keypair,
+          lifetimeInSeconds: 300,
+          capabilities: [
+            { with: { scheme: "gate", hierPart: groupId }, can: { namespace: "gate", segments: ["ADMIN"] } },
+          ],
+        })
+      );
+
+    // Client mint replica (group-voucher.ts mintGroupVoucher → owner-ucan.ts
+    // mintGroupScopedUcan): gate/INVITE on the GROUP hierPart, fct.groupRef = groupId,
+    // NO docId (a group voucher is reusable across every doc the group is attached to).
+    const mintGroupVoucher = async (
+      groupId: string,
+      identifier: string,
+      role: "view" | "comment" = "view"
+    ): Promise<{ token: string; idHash: string }> => {
+      const idHash = hashIdHash(salt, normalizeIdentifier(identifier));
+      const token = ucans.encode(
+        await ucans.build({
+          audience: ownerDid,
+          issuer: ownerKeypair,
+          lifetimeInSeconds: 30 * 86400,
+          capabilities: [
+            { with: { scheme: "gate", hierPart: groupId }, can: { namespace: "gate", segments: ["INVITE"] } },
+          ],
+          facts: [{ v: 1, groupRef: groupId, salt, idHash, role, iat: Date.now() }],
+        })
+      );
+      return { token, idHash };
+    };
+
     // Privy-shaped identity token (the harness's ES256 key IS the trust root).
     const mintPrivyToken = async (emails: string[]): Promise<string> =>
       new SignJWT({
@@ -347,6 +389,34 @@ const main = async (): Promise<void> => {
       const members = membersOverride ?? (await fetchGroup(scenario, forDocId)).members;
       const group = new Group(members.map(BigInt));
       const proof = await generateProof(identity, group, nonce, forDocId); // message=nonce, scope=docId
+      return callGate("POST", "/release", { docId: forDocId, proof });
+    };
+
+    /** GET /group/:groupRef → root+members (the standalone group reader). */
+    const fetchGateGroup = async (
+      scenario: string,
+      groupRef: string
+    ): Promise<{ root: string; members: string[] }> => {
+      const reply = await callGate("GET", `/group/${groupRef}`);
+      ensure(scenario, `GET /group/${groupRef}`, reply.status === 200, `got ${reply.status}`);
+      return reply.body as unknown as { root: string; members: string[] };
+    };
+
+    // NEW client path (group-reader.ts resolveGroupAccess §2–4): the member proves the
+    // GROUP's root but the proof SCOPE is the docId being opened (the doc supplies the
+    // scope, the group supplies the root). membersOverride proves against a stale member
+    // set (post-revoke / detach negative tests).
+    const releaseViaGroup = async (
+      scenario: string,
+      identity: Identity,
+      forDocId: string,
+      groupRef: string,
+      membersOverride?: string[]
+    ): Promise<GateReply> => {
+      const nonce = await mintChallenge(scenario, forDocId);
+      const members = membersOverride ?? (await fetchGateGroup(scenario, groupRef)).members;
+      const group = new Group(members.map(BigInt));
+      const proof = await generateProof(identity, group, nonce, forDocId); // root=group, scope=docId
       return callGate("POST", "/release", { docId: forDocId, proof });
     };
 
@@ -725,7 +795,316 @@ const main = async (): Promise<void> => {
     ensureReply(h13, "docA-scoped proof against docB", wrongDoc, 403, "PROOF_SCOPE_MISMATCH");
     console.log("H13 cross-doc proof scope 403 (scope check specifically, via a docB-live nonce) ... ok");
 
-    console.log("\nALL 12 SCENARIOS PASSED");
+    // ================= H14: group register → group-enroll → GET /group/:ref =================
+    const h14 = "H14";
+    const groupId = `g-${runTag}`; // shortUUID-shaped; well under the 31-byte groupRef ceiling
+    const groupAnchor = { ...anchorRef, fileId: 0 }; // groups carry fileId=0 (unused; portal-owner auth)
+
+    const groupRegister = await callGate("POST", "/group/register", {
+      groupRef: groupId,
+      anchorRef: groupAnchor,
+      ownerUcan: await mintGroupAdminUcan(groupId),
+    });
+    ensureReply(h14, "group register", groupRegister, 200);
+    ensure(h14, "group register ok:true", groupRegister.body?.ok === true, redactedBody(groupRegister));
+
+    const groupVoucherOne = await mintGroupVoucher(groupId, memberOneEmail);
+    const groupEnrollOne = await callGate("POST", `/group/${groupId}/enroll`, {
+      voucher: groupVoucherOne.token,
+      commitment: memberOneCommitment,
+      privyIdToken: await mintPrivyToken([memberOneEmail]),
+    });
+    ensureReply(h14, "group enroll member one", groupEnrollOne, 204);
+
+    const groupAfterEnroll = await fetchGateGroup(h14, groupId);
+    ensure(
+      h14,
+      "group read-after-write is exactly [memberOne]",
+      groupAfterEnroll.members.length === 1 && groupAfterEnroll.members[0] === memberOneCommitment,
+      `members=${JSON.stringify(groupAfterEnroll.members)}`
+    );
+    ensure(
+      h14,
+      "group root matches local LeanIMT",
+      groupAfterEnroll.root === new Group(groupAfterEnroll.members.map(BigInt)).root.toString()
+    );
+
+    // Task 1.7 loosened register guard: a doc may register an acceptedRoots entry for a
+    // PREVIOUSLY-REGISTERED named group (groupRef !== docId), but a non-existent group
+    // ref is rejected 400. (Exercises register.ts's nonSelfRefs getGateGroup loop.)
+    const docRefGroup = `dr-${runTag}`;
+    const registerWithGroupRoot = await callGate("POST", "/register", {
+      docId: docRefGroup,
+      acceptedRoots: [
+        { groupRef: docRefGroup, role: "view" }, // own implicit group
+        { groupRef: groupId, role: "view" }, // the existing named group — must be allowed
+      ],
+      ownerUcan: await mintAdminUcan(docRefGroup),
+      anchorRef: { ...anchorRef, fileId: 31 },
+    });
+    ensureReply(h14, "register doc referencing an existing group root", registerWithGroupRoot, 200);
+
+    const registerWithBogusGroup = await callGate("POST", "/register", {
+      docId: `db-${runTag}`,
+      acceptedRoots: [{ groupRef: `nope-${runTag}`, role: "view" }], // unregistered group ref
+      ownerUcan: await mintAdminUcan(`db-${runTag}`),
+      anchorRef: { ...anchorRef, fileId: 32 },
+    });
+    // 400 message pinned (register.ts nonSelfRefs guard): a doc cannot accept a root for
+    // a group the gate has never registered.
+    ensureReply(h14, "register doc referencing an unknown group root", registerWithBogusGroup, 400, "INVALID_ACCEPTED_ROOTS");
+    console.log("H14 group register/enroll/GET — commitment + root; loosened register guard ... ok");
+
+    // ================= H15: attach group to a doc → member releases via GROUP root =================
+    // Full §9.4 path: owner wraps a fileKey under the epoch-0 share; the group member
+    // (NOT in the doc's own members) recovers the SAME fileKey bytes via the group root.
+    const h15 = "H15";
+    const docG = `dg-${runTag}`; // group-attached doc
+    const docGAnchor = { ...anchorRef, fileId: 21 };
+
+    const registerDocG = await callGate("POST", "/register", {
+      docId: docG,
+      acceptedRoots: [{ groupRef: docG, role: "view" }], // own implicit group only (empty for now)
+      ownerUcan: await mintAdminUcan(docG),
+      anchorRef: docGAnchor,
+    });
+    ensureReply(h15, "register docG", registerDocG, 200);
+
+    // Owner wraps the fileKey under the epoch-0 share (the doc-creation wrap, §9.4).
+    const shareDocG0 = await callGate("POST", "/share", {
+      docId: docG,
+      epoch: 0,
+      ownerUcan: await mintAdminUcan(docG),
+    });
+    ensureReply(h15, "owner share docG epoch 0", shareDocG0, 200);
+    const ownerShareDocG0 = shareDocG0.body?.gateShare as string;
+    const docGFileKey = randomBytes(32);
+    const docGWrappedFileKey = await wrapWithKey(docGFileKey, deriveWrapKeyBytes(seed, ownerShareDocG0, salt));
+
+    // Attach the group to docG (doc owner authorizes; cross-portal OK — same portal).
+    const attachG = await callGate("POST", `/doc/${docG}/attach`, {
+      groupRef: groupId,
+      role: "view",
+      ownerUcan: await mintAdminUcan(docG),
+    });
+    ensureReply(h15, "attach group to docG", attachG, 204);
+
+    // The group member proves the GROUP root, scope=docG → /release.
+    const groupReleaseG = await releaseViaGroup(h15, memberOne, docG, groupId);
+    ensureReply(h15, "group member releases via group root", groupReleaseG, 200);
+    const groupMemberShareG = groupReleaseG.body?.gateShare as string;
+    ensure(
+      h15,
+      "CORE Option A: group-release share === owner epoch-0 share",
+      groupMemberShareG === ownerShareDocG0,
+      "gateShare bytes mismatch (Option A violated)"
+    );
+    // The §9.4 keystone: the group member recovers the SAME fileKey bytes the owner wrapped.
+    const docGUnwrapped = await unwrapWithKey(docGWrappedFileKey, deriveWrapKeyBytes(seed, groupMemberShareG, salt));
+    ensure(
+      h15,
+      "CORE group member recovers the owner-wrapped fileKey bytes",
+      !!docGUnwrapped && Buffer.from(docGUnwrapped).equals(docGFileKey),
+      "group-side fileKey unwrap failed"
+    );
+    console.log("H15 attach + group-root release recovers the doc's fileKey (full §9.4 path) ... ok");
+
+    // ================= H16: union — individual proof AND group proof unwrap the SAME fileKey =====
+    const h16 = "H16";
+    const docU = `du-${runTag}`; // doc with BOTH an individual member and an attached group
+    const docUAnchor = { ...anchorRef, fileId: 22 };
+
+    const registerDocU = await callGate("POST", "/register", {
+      docId: docU,
+      acceptedRoots: [{ groupRef: docU, role: "view" }],
+      ownerUcan: await mintAdminUcan(docU),
+      anchorRef: docUAnchor,
+    });
+    ensureReply(h16, "register docU", registerDocU, 200);
+
+    // Owner wraps the fileKey under docU's epoch-0 share.
+    const shareDocU0 = await callGate("POST", "/share", {
+      docId: docU,
+      epoch: 0,
+      ownerUcan: await mintAdminUcan(docU),
+    });
+    ensureReply(h16, "owner share docU epoch 0", shareDocU0, 200);
+    const ownerShareDocU0 = shareDocU0.body?.gateShare as string;
+    const docUFileKey = randomBytes(32);
+    const docUWrappedFileKey = await wrapWithKey(docUFileKey, deriveWrapKeyBytes(seed, ownerShareDocU0, salt));
+
+    // Individual member (memberTwo) enrolls into docU's OWN implicit group via a
+    // DOC-scoped voucher (the individuals path — distinct root from the group root).
+    const docUIndividualVoucher = await mintVoucher(docU, outsiderEmail);
+    const docUEnroll = await callGate("POST", "/enroll", {
+      docId: docU,
+      voucher: docUIndividualVoucher.token,
+      commitment: memberTwoCommitment,
+      privyIdToken: await mintPrivyToken([outsiderEmail]),
+    });
+    ensureReply(h16, "enroll individual into docU implicit group", docUEnroll, 204);
+
+    // Attach the named group (its root holds memberOne — a DIFFERENT non-"0" root).
+    const attachU = await callGate("POST", `/doc/${docU}/attach`, {
+      groupRef: groupId,
+      role: "view",
+      ownerUcan: await mintAdminUcan(docU),
+    });
+    ensureReply(h16, "attach group to docU", attachU, 204);
+
+    // Sanity: the union now has TWO distinct non-"0" roots (implicit vs group).
+    const docUImplicitRoot = (await fetchGroup(h16, docU)).root;
+    const docUGroupRoot = (await fetchGateGroup(h16, groupId)).root;
+    ensure(
+      h16,
+      "union has two distinct non-zero roots",
+      docUImplicitRoot !== "0" && docUGroupRoot !== "0" && docUImplicitRoot !== docUGroupRoot,
+      `implicit=${docUImplicitRoot} group=${docUGroupRoot}`
+    );
+
+    // Individual proof (docU's own members) releases.
+    const individualReleaseU = await releaseAs(h16, memberTwo, docU);
+    ensureReply(h16, "individual proof releases", individualReleaseU, 200);
+    const individualShareU = individualReleaseU.body?.gateShare as string;
+
+    // Group proof (the named group's members) releases.
+    const groupReleaseU = await releaseViaGroup(h16, memberOne, docU, groupId);
+    ensureReply(h16, "group proof releases", groupReleaseU, 200);
+    const groupShareU = groupReleaseU.body?.gateShare as string;
+
+    // Option A: both doors return the IDENTICAL share, and both unwrap the SAME fileKey.
+    ensure(
+      h16,
+      "CORE individual share === group share (Option A)",
+      individualShareU === groupShareU && individualShareU === ownerShareDocU0,
+      "shares diverge across audiences"
+    );
+    const unwrapViaIndividual = await unwrapWithKey(docUWrappedFileKey, deriveWrapKeyBytes(seed, individualShareU, salt));
+    const unwrapViaGroup = await unwrapWithKey(docUWrappedFileKey, deriveWrapKeyBytes(seed, groupShareU, salt));
+    ensure(
+      h16,
+      "CORE both audiences unwrap the identical fileKey",
+      !!unwrapViaIndividual &&
+        !!unwrapViaGroup &&
+        Buffer.from(unwrapViaIndividual).equals(docUFileKey) &&
+        Buffer.from(unwrapViaGroup).equals(docUFileKey),
+      "individual/group unwrap disagree"
+    );
+    console.log("H16 union: individual + group proofs unwrap the identical fileKey ... ok");
+
+    // ================= H17: group-revoke → removed member 409, survivor still releases =====
+    const h17 = "H17";
+    // Enroll memberTwo into the GROUP so we have a survivor after revoking memberOne.
+    const groupVoucherTwo = await mintGroupVoucher(groupId, memberTwoEmail);
+    const groupEnrollTwo = await callGate("POST", `/group/${groupId}/enroll`, {
+      voucher: groupVoucherTwo.token,
+      commitment: memberTwoCommitment,
+      privyIdToken: await mintPrivyToken([memberTwoEmail]),
+    });
+    ensureReply(h17, "group enroll member two", groupEnrollTwo, 204);
+
+    const preRevokeGroupMembers = (await fetchGateGroup(h17, groupId)).members; // [one, two]
+    const groupRevokeOne = await callGate("POST", `/group/${groupId}/revoke`, {
+      idHash: groupVoucherOne.idHash,
+      ownerUcan: await mintGroupAdminUcan(groupId),
+    });
+    ensureReply(h17, "group revoke member one", groupRevokeOne, 204);
+    ensure(
+      h17,
+      "member one evicted from group",
+      !(await fetchGateGroup(h17, groupId)).members.includes(memberOneCommitment)
+    );
+
+    // Removed member proving the OLD (pre-revoke) group root against docG → stale 409.
+    const staleGroupProof = await releaseViaGroup(h17, memberOne, docG, groupId, preRevokeGroupMembers);
+    ensureReply(h17, "removed member's pre-revoke-root group proof", staleGroupProof, 409, "STALE_GROUP_ROOT");
+
+    // Survivor (memberTwo) rebuilds against the CURRENT group root and still releases docG.
+    const survivorGroupRelease = await releaseViaGroup(h17, memberTwo, docG, groupId);
+    ensureReply(h17, "surviving group member still releases", survivorGroupRelease, 200);
+    console.log("H17 group revoke: removed member stale-root 409; survivor releases (no epoch) ... ok");
+
+    // ================= H18: detach → the group member's proof 409 (root not in accepted set) ===
+    const h18 = "H18";
+    const detachG = await callGate("POST", `/doc/${docG}/detach`, {
+      groupRef: groupId,
+      ownerUcan: await mintAdminUcan(docG),
+    });
+    ensureReply(h18, "detach group from docG", detachG, 204);
+
+    // The surviving group member's CURRENT-root proof now 409s: docG's accepted set no
+    // longer contains the group root (only docG's own — empty — implicit group remains).
+    const postDetachProof = await releaseViaGroup(h18, memberTwo, docG, groupId);
+    ensureReply(h18, "group proof after detach", postDetachProof, 409, "STALE_GROUP_ROOT");
+    console.log("H18 detach: group root no longer in the doc's accepted set → 409 ... ok");
+
+    // ================= H19: cross-portal attach (group portal X, doc portal Y) → 403 =====
+    const h19 = "H19";
+    const foreignGroupId = `gf-${runTag}`;
+    const foreignAnchor = {
+      chainId: anchorRef.chainId,
+      portalAddress: `0x${randomBytes(20).toString("hex")}`, // DIFFERENT portal
+      fileId: 0,
+    };
+    const foreignGroupRegister = await callGate("POST", "/group/register", {
+      groupRef: foreignGroupId,
+      anchorRef: foreignAnchor,
+      ownerUcan: await mintGroupAdminUcan(foreignGroupId),
+    });
+    ensureReply(h19, "register foreign-portal group", foreignGroupRegister, 200);
+
+    // docG lives on docGAnchor's portal (== anchorRef.portalAddress); the foreign group
+    // lives on a different portal → attach must 403.
+    const crossPortalAttach = await callGate("POST", `/doc/${docG}/attach`, {
+      groupRef: foreignGroupId,
+      role: "view",
+      ownerUcan: await mintAdminUcan(docG),
+    });
+    ensureReply(h19, "cross-portal attach", crossPortalAttach, 403, "CROSS_PORTAL_ATTACH");
+    console.log("H19 cross-portal attach (group portal != doc portal) 403 ... ok");
+
+    // ================= H20: group-enroll BIND mismatch + wrong-groupRef voucher → 403 =====
+    const h20 = "H20";
+    // BIND mismatch: voucher idHash is for an outsider, Privy attests memberOne.
+    const groupBindVoucher = await mintGroupVoucher(groupId, "group-outsider@example.com");
+    const groupBindFail = await callGate("POST", `/group/${groupId}/enroll`, {
+      voucher: groupBindVoucher.token,
+      commitment: new Identity(`harness-group-outsider-${runTag}`).commitment.toString(),
+      privyIdToken: await mintPrivyToken([memberOneEmail]),
+    });
+    ensureReply(h20, "group enroll BIND mismatch", groupBindFail, 403, "BIND_MISMATCH");
+
+    // Wrong-groupRef voucher: a voucher minted for the FOREIGN group presented to THIS
+    // group. Its UCAN hierPart is foreignGroupId, so it fails the gate/INVITE capability
+    // check on this groupRef (MISSING_CAPABILITY) — status 403 (message not over-pinned).
+    const wrongGroupVoucher = await mintGroupVoucher(foreignGroupId, memberOneEmail);
+    const wrongGroupRefFail = await callGate("POST", `/group/${groupId}/enroll`, {
+      voucher: wrongGroupVoucher.token,
+      commitment: memberOneCommitment,
+      privyIdToken: await mintPrivyToken([memberOneEmail]),
+    });
+    ensureReply(h20, "wrong-groupRef voucher", wrongGroupRefFail, 403);
+    console.log("H20 group enroll BIND mismatch 403; wrong-groupRef voucher 403 ... ok");
+
+    // ============ H21: cross-portal /register acceptedRoots (group portal != doc portal) → 403 ====
+    // Mirrors H19 (the /attach route) for the /register route: a new doc on the LOCAL portal
+    // cannot register an acceptedRoots entry for the foreign-portal group from H19. The
+    // register guard fires (pre-owner-auth) → 403 CROSS_PORTAL_ATTACH.
+    const h21 = "H21";
+    const docXP = `dxp-${runTag}`; // local-portal doc attempting a cross-portal root
+    const crossPortalRegister = await callGate("POST", "/register", {
+      docId: docXP,
+      acceptedRoots: [
+        { groupRef: docXP, role: "view" }, // own implicit group (always allowed)
+        { groupRef: foreignGroupId, role: "view" }, // foreign-portal group → reject
+      ],
+      anchorRef, // LOCAL portal (foreignGroupId lives on a different portal)
+      ownerUcan: await mintAdminUcan(docXP),
+    });
+    ensureReply(h21, "cross-portal register acceptedRoots", crossPortalRegister, 403, "CROSS_PORTAL_ATTACH");
+    console.log("H21 cross-portal register acceptedRoots (group portal != doc portal) 403 ... ok");
+
+    console.log("\nALL 20 SCENARIOS PASSED");
   } finally {
     await stopGate();
     try {

@@ -11,6 +11,11 @@ import group from "./group";
 import challenge from "./challenge";
 import release from "./release";
 import revoke from "./revoke";
+import groupRegister from "./group-register";
+import groupGet from "./group-get";
+import groupEnroll from "./group-enroll";
+import groupRevoke from "./group-revoke";
+import { attach, detach } from "./attach";
 
 const gateRouter = Router();
 
@@ -22,5 +27,13 @@ gateRouter.get("/doc/:docId/group", asyncHandlerArray(group));
 gateRouter.post("/challenge", asyncHandlerArray(challenge));
 gateRouter.post("/release", asyncHandlerArray(release));
 gateRouter.post("/revoke", asyncHandlerArray(revoke));
+
+// Standalone reusable groups (groups-semaphore Phase 1).
+gateRouter.post("/group/register", asyncHandlerArray(groupRegister));
+gateRouter.get("/group/:groupRef", asyncHandlerArray(groupGet));
+gateRouter.post("/group/:groupRef/enroll", asyncHandlerArray(groupEnroll));
+gateRouter.post("/group/:groupRef/revoke", asyncHandlerArray(groupRevoke));
+gateRouter.post("/doc/:docId/attach", asyncHandlerArray(attach));
+gateRouter.post("/doc/:docId/detach", asyncHandlerArray(detach));
 
 export { gateRouter };

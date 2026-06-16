@@ -22,6 +22,11 @@ export const loadGateKeys = (): void => {
       "gate keys: GATE_DEV_OWNER_DID_OVERRIDE bypasses on-chain owner verification and must NOT be set in production"
     );
   }
+  if (config.PRIVY_VERIFICATION_KEY && config.NODE_ENV === "production") {
+    throw new Error(
+      "gate keys: PRIVY_VERIFICATION_KEY enables offline (local-SPKI) identity-token verification and must NOT be set in production"
+    );
+  }
   if (loaded) return;
   // A missing key is non-fatal (gate routes 503 until set); a malformed one throws.
   masterKeyPrivate = parseMasterKey(config.GATE_MASTER_KEY);

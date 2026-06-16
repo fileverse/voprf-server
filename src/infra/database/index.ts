@@ -2,7 +2,7 @@
 // the gate must come up even when Mongo is down (VOPRF stays live; /gate 503s until
 // this succeeds), so the connect is non-fatal and retries forever with capped backoff.
 import mongoose from "mongoose";
-import { GateDoc, GateNonce } from "./models";
+import { GateDoc, GateGroup, GateNonce } from "./models";
 import { logger } from "../../logger";
 
 export const isMongoReady = (): boolean => mongoose.connection.readyState === 1;
@@ -16,7 +16,7 @@ export const connectGateDatastore = async (mongoUri: string): Promise<void> => {
       // Unique indexes must exist before traffic (registerGateDoc relies on the docId
       // E11000). createIndexes — NOT Model.init() — re-runs per attempt; init() caches
       // rejections and would wedge the retry loop.
-      await Promise.all([GateDoc.createIndexes(), GateNonce.createIndexes()]);
+      await Promise.all([GateDoc.createIndexes(), GateGroup.createIndexes(), GateNonce.createIndexes()]);
       logger.info("gate: datastore connected");
       return;
     } catch (error) {

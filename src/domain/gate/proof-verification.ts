@@ -99,6 +99,21 @@ export const assertCurrentRoot = (proof: SemaphoreProofShape, currentRoot: strin
   }
 };
 
+/**
+ * Additive-implicit-group acceptance: the proof's root must be in the doc's UNION of
+ * currently-accepted roots (its own implicit-group root + each attached group's root).
+ * Stale (a root no longer in the set after a membership change) is a self-healing
+ * retry (409), not an attack — the client refetches and rebuilds the proof.
+ */
+export const assertRootInSet = (proof: SemaphoreProofShape, currentRoots: string[]): void => {
+  if (!currentRoots.includes(proof.merkleTreeRoot)) {
+    throwError({
+      code: 409,
+      message: GateErrorCode.STALE_GROUP_ROOT,
+    });
+  }
+};
+
 /** Groth16 verify (vkeys bundled in-package; a throw → treat as invalid). */
 export const assertProofValid = async (proof: SemaphoreProofShape): Promise<void> => {
   let valid = false;

@@ -37,6 +37,19 @@ const COLLABORATOR_KEYS_ABI = [
   },
 ] as const;
 
+// The portal contract (FileverseApp) is OpenZeppelin-Ownable: owner() → address.
+// Personal portal owner = the user; team portal owner = the workspace ASA — the same
+// read covers both (groups-semaphore §11).
+const OWNER_ABI = [
+  {
+    inputs: [],
+    name: "owner",
+    outputs: [{ internalType: "address", name: "", type: "address" }],
+    stateMutability: "view",
+    type: "function",
+  },
+] as const;
+
 export const readOnChainOwnerDid = async (anchorRef: GateAnchorRef): Promise<string> => {
   // Dev/harness only; boot-refused in production (infra/gate-keys).
   if (config.GATE_DEV_OWNER_DID_OVERRIDE) return config.GATE_DEV_OWNER_DID_OVERRIDE;
@@ -58,6 +71,39 @@ export const readOnChainOwnerDid = async (anchorRef: GateAnchorRef): Promise<str
     args: [BigInt(anchorRef.fileId)],
   });
   const owner = file[6];
+  const ownerDid = await publicClient.readContract({
+    address: portal,
+    abi: COLLABORATOR_KEYS_ABI,
+    functionName: "collaboratorKeys",
+    args: [owner],
+  });
+  return ownerDid;
+};
+
+// Group owner-auth basis: the on-chain PORTAL owner's DID (not a per-file owner).
+// Read on every group admin call (never cached) so portal ownership transfers are
+// followed. CRITICAL: honour GATE_DEV_OWNER_DID_OVERRIDE by short-circuiting BEFORE
+// any RPC, exactly like readOnChainOwnerDid — the interop harness never dials RPC, so
+// without this short-circuit every group register/enroll/revoke fails owner-auth.
+export const readOnChainPortalOwnerDid = async (anchorRef: GateAnchorRef): Promise<string> => {
+  // Dev/harness only; boot-refused in production (infra/gate-keys).
+  if (config.GATE_DEV_OWNER_DID_OVERRIDE) return config.GATE_DEV_OWNER_DID_OVERRIDE;
+
+  // A sepolia anchor must never be read against the gnosis gate, or vice-versa.
+  if (anchorRef.chainId !== configuredChainId) {
+    throwError({
+      code: 400,
+      message: GateErrorCode.CHAIN_ID_MISMATCH,
+    });
+  }
+
+  const publicClient = getPublicClient();
+  const portal = getAddress(anchorRef.portalAddress);
+  const owner = await publicClient.readContract({
+    address: portal,
+    abi: OWNER_ABI,
+    functionName: "owner",
+  });
   const ownerDid = await publicClient.readContract({
     address: portal,
     abi: COLLABORATOR_KEYS_ABI,
