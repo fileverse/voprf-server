@@ -15,6 +15,7 @@ import groupRegister from "./group-register";
 import groupGet from "./group-get";
 import groupEnroll from "./group-enroll";
 import groupRevoke from "./group-revoke";
+import groupDelete from "./group-delete";
 import { attach, detach } from "./attach";
 
 const gateRouter = Router();
@@ -33,6 +34,7 @@ gateRouter.post("/group/register", asyncHandlerArray(groupRegister));
 gateRouter.get("/group/:groupRef", asyncHandlerArray(groupGet));
 gateRouter.post("/group/:groupRef/enroll", asyncHandlerArray(groupEnroll));
 gateRouter.post("/group/:groupRef/revoke", asyncHandlerArray(groupRevoke));
+gateRouter.post("/group/:groupRef/delete", asyncHandlerArray(groupDelete));
 gateRouter.post("/doc/:docId/attach", asyncHandlerArray(attach));
 gateRouter.post("/doc/:docId/detach", asyncHandlerArray(detach));
 

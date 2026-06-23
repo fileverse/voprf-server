@@ -28,6 +28,8 @@ export type { GroupRegisterOutcome } from "./group-register";
 export { appendGroupEnrollment } from "./group-enroll";
 export { revokeGateGroupMember } from "./group-revoke";
 export type { GroupRevokeOutcome } from "./group-revoke";
+export { deleteGateGroup } from "./group-delete";
+export type { GroupDeleteOutcome } from "./group-delete";
 export { attachGroupToDoc, detachGroupFromDoc } from "./group-attach";
 export type { AttachOutcome } from "./group-attach";
 export { resolveAcceptedRoots } from "./resolve-roots";

@@ -1,7 +1,9 @@
 // gate-interop-harness.ts — plays the ddocs.new GP client byte-for-byte against
-// a locally spawned gate (docs/gate-server-design.md §11, scenarios H1–H24; H10 retired with key
+// a locally spawned gate (docs/gate-server-design.md §11, scenarios H1–H25; H10 retired with key
 // versioning). H22–H24 cover the per-role (view/comment) boundary: distinct role shares, the
 // crypto boundary (view unwraps fileKey only), and the enroll role-relabel tier-switch primitive.
+// H25 covers whole-group DELETE: one delete hard-revokes across every attached doc (no per-doc
+// fan-out), live roots on a doc survive, and re-delete is idempotent (404).
 // NO test framework: scenarios run sequentially, one "Hn … ok" line each; the
 // first failed assertion throws with a diagnostic and the process exits 1.
 //
@@ -1308,7 +1310,104 @@ const main = async (): Promise<void> => {
     ensure(h24, "downgraded member: comment share gone", tShares.comment === undefined);
     console.log("H24 enroll role-relabel (tier-switch primitive) ... ok");
 
-    console.log("\nALL 23 SCENARIOS PASSED");
+    // ================= H25: group DELETE hard-revokes across ALL attached docs ============
+    // deleteGroup removes the gate group row → resolveAcceptedRoots skips it for EVERY doc
+    // that attached it, so one delete revokes the group's access everywhere (no per-doc
+    // fan-out). Also proves the gate-side fall-through the reader relies on: a doc carrying
+    // BOTH the deleted group AND a live root keeps granting via the live root.
+    const h25 = "H25";
+    const delGroupId = `gd25-${runTag}`;
+    ensureReply(
+      h25,
+      "register delete-group",
+      await callGate("POST", "/group/register", {
+        groupRef: delGroupId,
+        anchorRef: { chainId: anchorRef.chainId, portalAddress: anchorRef.portalAddress, fileId: 0 },
+        ownerUcan: await mintGroupAdminUcan(delGroupId),
+      }),
+      200
+    );
+    ensureReply(
+      h25,
+      "enroll member one into delete-group",
+      await callGate("POST", `/group/${delGroupId}/enroll`, {
+        voucher: (await mintGroupVoucher(delGroupId, memberOneEmail)).token,
+        commitment: memberOneCommitment,
+        privyIdToken: await mintPrivyToken([memberOneEmail]),
+      }),
+      204
+    );
+
+    // Two docs on the SAME portal both attach the group; docB also gets its OWN
+    // individual member (memberTwo) — a SECOND, live root for the fall-through check.
+    const docA25 = `da25-${runTag}`;
+    const docB25 = `db25-${runTag}`;
+    ensureReply(h25, "register docA25", await callGate("POST", "/register", {
+      docId: docA25,
+      acceptedRoots: [{ groupRef: docA25, role: "view" }],
+      ownerUcan: await mintAdminUcan(docA25),
+      anchorRef: { ...anchorRef, fileId: 51 },
+    }), 200);
+    ensureReply(h25, "register docB25", await callGate("POST", "/register", {
+      docId: docB25,
+      acceptedRoots: [{ groupRef: docB25, role: "view" }],
+      ownerUcan: await mintAdminUcan(docB25),
+      anchorRef: { ...anchorRef, fileId: 52 },
+    }), 200);
+    ensureReply(h25, "attach group to docA25", await callGate("POST", `/doc/${docA25}/attach`, {
+      groupRef: delGroupId, role: "view", ownerUcan: await mintAdminUcan(docA25),
+    }), 204);
+    ensureReply(h25, "attach group to docB25", await callGate("POST", `/doc/${docB25}/attach`, {
+      groupRef: delGroupId, role: "view", ownerUcan: await mintAdminUcan(docB25),
+    }), 204);
+    ensureReply(h25, "enroll individual into docB25", await callGate("POST", "/enroll", {
+      docId: docB25,
+      voucher: (await mintVoucher(docB25, memberTwoEmail)).token,
+      commitment: memberTwoCommitment,
+      privyIdToken: await mintPrivyToken([memberTwoEmail]),
+    }), 204);
+
+    // Pre-delete sanity: the group member releases via the group root on BOTH docs.
+    ensureReply(h25, "pre-delete: group member releases docA25",
+      await releaseViaGroup(h25, memberOne, docA25, delGroupId), 200);
+    ensureReply(h25, "pre-delete: group member releases docB25",
+      await releaseViaGroup(h25, memberOne, docB25, delGroupId), 200);
+
+    // Snapshot the group members NOW (post-delete fetchGateGroup 404s) so we can prove
+    // the dead root afterwards exactly as a stale client / 5-min cache would.
+    const delGroupMembers = (await fetchGateGroup(h25, delGroupId)).members;
+
+    // DELETE the whole group (owner-authorized).
+    ensureReply(h25, "delete group", await callGate("POST", `/group/${delGroupId}/delete`, {
+      ownerUcan: await mintGroupAdminUcan(delGroupId),
+    }), 204);
+    // Pin the GET's 404 BODY CODE, not just the status: the client reader's PRIMARY
+    // fall-through (group-reader.ts) keys on GateError.code === 'GROUP_NOT_REGISTERED'
+    // from exactly this call, so a bare-404 regression here would silently break the
+    // [deletedGroup, liveGroup] fall-through.
+    ensureReply(h25, "deleted group GET 404 + code",
+      await callGate("GET", `/group/${delGroupId}`), 404, "GROUP_NOT_REGISTERED");
+
+    // HARD-REVOKE FAN-OUT: the group member's proof now 409s on BOTH docs — the deleted
+    // group's root is no longer in either doc's accepted set, with no per-doc detach.
+    ensureReply(h25, "post-delete: group proof 409 on docA25",
+      await releaseViaGroup(h25, memberOne, docA25, delGroupId, delGroupMembers), 409, "STALE_GROUP_ROOT");
+    ensureReply(h25, "post-delete: group proof 409 on docB25",
+      await releaseViaGroup(h25, memberOne, docB25, delGroupId, delGroupMembers), 409, "STALE_GROUP_ROOT");
+
+    // FALL-THROUGH (gate half of reader fault-isolation): docB25's individual member still
+    // releases via the LIVE individual root while the deleted group's root 409s — a member
+    // of [deletedGroup, liveRoot] keeps access.
+    ensureReply(h25, "post-delete: individual still releases docB25",
+      await releaseAs(h25, memberTwo, docB25), 200);
+
+    // Idempotent re-delete: the row is already gone → 404 (the client treats as success).
+    ensureReply(h25, "re-delete already-gone group 404",
+      await callGate("POST", `/group/${delGroupId}/delete`, { ownerUcan: await mintGroupAdminUcan(delGroupId) }),
+      404, "GROUP_NOT_REGISTERED");
+    console.log("H25 group delete hard-revokes across all attached docs; live roots survive ... ok");
+
+    console.log("\nALL 24 SCENARIOS PASSED");
   } finally {
     await stopGate();
     try {
