@@ -20,6 +20,7 @@ export const appendGroupEnrollment = async (
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const group = await getGateGroup(groupRef);
     if (!group) return "unknown-doc";
+    if ((group.revokedIdHashes ?? []).includes(idHash)) return "revoked";
     const bound = group.bindings.find((b) => b.idHash === idHash);
     if (bound) return bound.commitment === commitment ? "noop" : "pin-conflict";
 
@@ -30,6 +31,7 @@ export const appendGroupEnrollment = async (
     const filter: Record<string, unknown> = {
       groupRef,
       "bindings.idHash": { $ne: idHash },
+      revokedIdHashes: { $ne: idHash },
       ...(memberAlready ? { members: commitment } : { members: { $ne: commitment } }),
     };
     const update = memberAlready

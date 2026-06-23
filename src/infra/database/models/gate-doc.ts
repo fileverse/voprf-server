@@ -27,6 +27,8 @@ export interface GateDocRecord {
   /** decimal commitment strings, APPEND ORDER (clients rebuild the LeanIMT from this) */
   members: string[];
   bindings: GateBinding[];
+  /** idHashes evicted by /revoke; refused at /enroll until /reinstate lifts them. */
+  revokedIdHashes: string[];
 }
 
 const AnchorRefSchema = new Schema<GateAnchorRef>(
@@ -55,6 +57,7 @@ const GateDocSchema = new Schema<GateDocRecord>(
         _id: false,
       },
     ],
+    revokedIdHashes: { type: [String], default: [] },
   },
   { collection: "gate_docs", minimize: false }
 );

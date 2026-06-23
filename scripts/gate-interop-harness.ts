@@ -4,6 +4,11 @@
 // crypto boundary (view unwraps fileKey only), and the enroll role-relabel tier-switch primitive.
 // H25 covers whole-group DELETE: one delete hard-revokes across every attached doc (no per-doc
 // fan-out), live roots on a doc survive, and re-delete is idempotent (404).
+// H26–H28 cover the per-doc/per-group revokedIdHashes denylist and reinstate:
+//   H26: /revoke (with denylist) blocks re-enroll → 403 IDENTITY_REVOKED; /reinstate lifts it.
+//   H27: group /revoke blocks re-enroll on the group → 403 IDENTITY_REVOKED; group /reinstate lifts it.
+//   H28: /revoke with addToDenylist:false (mechanical epoch-bump) leaves the denylist untouched —
+//        a currently-valid, never-denylisted member's /enroll succeeds (not 403).
 // NO test framework: scenarios run sequentially, one "Hn … ok" line each; the
 // first failed assertion throws with a diagnostic and the process exits 1.
 //
@@ -1407,7 +1412,136 @@ const main = async (): Promise<void> => {
       404, "GROUP_NOT_REGISTERED");
     console.log("H25 group delete hard-revokes across all attached docs; live roots survive ... ok");
 
-    console.log("\nALL 24 SCENARIOS PASSED");
+    // ================= H26: doc denylist + reinstate ==========================================
+    // State entering H26: docId currentEpoch=2 (H6→1, H8→2). memberOne is enrolled and
+    // NOT denylisted. memberTwo is already denylisted (H6 revoked it with addToDenylist:true).
+    // So we revoke memberOne (epoch 3, denylist=true), prove the denylist 403 fires on its
+    // still-valid voucher, reinstate it, then re-enroll successfully.
+    const h26 = "H26";
+    const h26RevokeEpoch = 3; // forward of currentEpoch=2
+    const revokeOneH26 = await callGate("POST", "/revoke", {
+      docId,
+      idHash: voucherOne.idHash,
+      ownerUcan: await mintAdminUcan(docId),
+      epoch: h26RevokeEpoch,
+      // addToDenylist omitted → defaults to true in revoke.ts (addToDenylist ?? true)
+    });
+    ensureReply(h26, "revoke memberOne (denylist)", revokeOneH26, 204);
+
+    // memberOne's voucher is still cryptographically valid but idHash is now denylisted.
+    const denylistEnrollH26 = await callGate("POST", "/enroll", {
+      docId,
+      voucher: voucherOne.token,
+      commitment: memberOneCommitment,
+      privyIdToken: await mintPrivyToken([memberOneEmail]),
+    });
+    // 403 IDENTITY_REVOKED: the denylist check fires before PIN+ADD.
+    ensureReply(h26, "denylisted enroll → IDENTITY_REVOKED", denylistEnrollH26, 403, "IDENTITY_REVOKED");
+
+    // Owner reinstates: $pull idHash from revokedIdHashes.
+    const reinstateOneH26 = await callGate("POST", "/reinstate", {
+      docId,
+      idHash: voucherOne.idHash,
+      ownerUcan: await mintAdminUcan(docId),
+    });
+    ensureReply(h26, "reinstate memberOne", reinstateOneH26, 204);
+
+    // Re-enroll succeeds now that the idHash is off the denylist.
+    // memberOne was evicted from members by the H26 revoke, so this is a fresh add.
+    const reEnrollOneH26 = await callGate("POST", "/enroll", {
+      docId,
+      voucher: voucherOne.token,
+      commitment: memberOneCommitment,
+      privyIdToken: await mintPrivyToken([memberOneEmail]),
+    });
+    ensureReply(h26, "re-enroll after reinstate succeeds", reEnrollOneH26, 204);
+    console.log("H26 doc denylist+reinstate: IDENTITY_REVOKED 403 lifted by /reinstate, re-enroll 204 ... ok");
+
+    // ================= H27: group denylist + reinstate ========================================
+    // State entering H27: groupId members = [memberTwo] (memberOne was evicted + denylisted
+    // in H17). So we revoke memberTwo (groupVoucherTwo, always denylists), prove 403 on
+    // group re-enroll, reinstate, re-enroll successfully.
+    const h27 = "H27";
+    const groupRevokeTwoH27 = await callGate("POST", `/group/${groupId}/revoke`, {
+      idHash: groupVoucherTwo.idHash,
+      ownerUcan: await mintGroupAdminUcan(groupId),
+    });
+    ensureReply(h27, "group revoke memberTwo (denylist)", groupRevokeTwoH27, 204);
+
+    // memberTwo's group voucher is still valid but idHash is now on the group denylist.
+    const denylistGroupEnrollH27 = await callGate("POST", `/group/${groupId}/enroll`, {
+      voucher: groupVoucherTwo.token,
+      commitment: memberTwoCommitment,
+      privyIdToken: await mintPrivyToken([memberTwoEmail]),
+    });
+    // 403 IDENTITY_REVOKED: group enroll denylist check (group-enroll.ts).
+    ensureReply(h27, "denylisted group enroll → IDENTITY_REVOKED", denylistGroupEnrollH27, 403, "IDENTITY_REVOKED");
+
+    // Owner reinstates: $pull idHash from group revokedIdHashes.
+    const reinstateGroupTwoH27 = await callGate("POST", `/group/${groupId}/reinstate`, {
+      idHash: groupVoucherTwo.idHash,
+      ownerUcan: await mintGroupAdminUcan(groupId),
+    });
+    ensureReply(h27, "group reinstate memberTwo", reinstateGroupTwoH27, 204);
+
+    // Re-enroll into the group succeeds after reinstate.
+    const reEnrollGroupTwoH27 = await callGate("POST", `/group/${groupId}/enroll`, {
+      voucher: groupVoucherTwo.token,
+      commitment: memberTwoCommitment,
+      privyIdToken: await mintPrivyToken([memberTwoEmail]),
+    });
+    ensureReply(h27, "re-enroll into group after reinstate succeeds", reEnrollGroupTwoH27, 204);
+    console.log("H27 group denylist+reinstate: IDENTITY_REVOKED 403 lifted by /reinstate, re-enroll 204 ... ok");
+
+    // ================= H28: addToDenylist:false does NOT block future enroll =================
+    // /revoke with addToDenylist:false is the mechanical epoch-bump path (changeTier
+    // ghost-revoke). It must NOT add the idHash to the denylist. We prove this by:
+    // 1. Revoking a sentinel idHash with addToDenylist:false (epoch 4, forward of epoch 3).
+    // 2. Enrolling memberOne (reinstated in H26, currently valid on docId) → must NOT 403.
+    // This proves the denylist remained untouched by the false-flag revoke.
+    const h28 = "H28";
+    const h28SentinelVoucher = await mintVoucher(docId, "h28-sentinel@example.com");
+    const h28SentinelRevoke = await callGate("POST", "/revoke", {
+      docId,
+      idHash: h28SentinelVoucher.idHash,
+      ownerUcan: await mintAdminUcan(docId),
+      epoch: 4, // forward of h26RevokeEpoch=3
+      addToDenylist: false,
+    });
+    ensureReply(h28, "sentinel revoke with addToDenylist:false", h28SentinelRevoke, 204);
+
+    // Now enroll memberOne (valid, reinstated in H26, not in denylist): must NOT be 403.
+    // memberOne was re-enrolled in H26 but epoch 4 may have advanced the epoch — that's fine
+    // for enroll (enroll does not check epoch). The commitment pin (H5-style) holds across
+    // epoch advances; re-enrolling the same (idHash, commitment) returns "noop" → 204.
+    const h28ValidEnroll = await callGate("POST", "/enroll", {
+      docId,
+      voucher: voucherOne.token,
+      commitment: memberOneCommitment,
+      privyIdToken: await mintPrivyToken([memberOneEmail]),
+    });
+    ensure(
+      h28,
+      "addToDenylist:false did not block valid enroll (status !== 403)",
+      h28ValidEnroll.status !== 403,
+      `got status=${h28ValidEnroll.status} body=${redactedBody(h28ValidEnroll)}`
+    );
+    // Also confirm the sentinel itself is NOT blocked (no denylist entry was written).
+    const h28SentinelEnroll = await callGate("POST", "/enroll", {
+      docId,
+      voucher: h28SentinelVoucher.token,
+      commitment: new Identity(`harness-h28-sentinel-${runTag}`).commitment.toString(),
+      privyIdToken: await mintPrivyToken(["h28-sentinel@example.com"]),
+    });
+    ensure(
+      h28,
+      "sentinel's own enroll is also not IDENTITY_REVOKED (addToDenylist:false left denylist clean)",
+      h28SentinelEnroll.status !== 403,
+      `got status=${h28SentinelEnroll.status} body=${redactedBody(h28SentinelEnroll)}`
+    );
+    console.log("H28 addToDenylist:false: mechanical epoch-bump leaves denylist untouched, valid enroll succeeds ... ok");
+
+    console.log("\nALL 27 SCENARIOS PASSED");
   } finally {
     await stopGate();
     try {

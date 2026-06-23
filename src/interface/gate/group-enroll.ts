@@ -44,6 +44,9 @@ async function enrollGroupMember(req: Request, res: Response): Promise<void> {
 
   const outcome = await appendGroupEnrollment(groupRef, claims.idHash, commitment, claims.role);
   if (outcome === "unknown-doc") return throwError({ code: 404, message: GateErrorCode.GROUP_NOT_REGISTERED });
+  if (outcome === "revoked") {
+    return throwError({ code: 403, message: GateErrorCode.IDENTITY_REVOKED });
+  }
   if (outcome === "pin-conflict") {
     return throwError({
       code: 409,

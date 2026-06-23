@@ -11,6 +11,8 @@ export interface GateGroupRecord {
   anchorRef: GateAnchorRef; // host portal (chainId, portalAddress, fileId=0) — owner-auth basis
   members: string[]; // decimal commitments, APPEND ORDER (clients rebuild the LeanIMT)
   bindings: GateBinding[]; // idHash → commitment pins (revoke-by-identifier)
+  /** idHashes evicted by /group/:ref/revoke; refused at group /enroll until /reinstate. */
+  revokedIdHashes: string[];
 }
 
 const AnchorRefSchema = new Schema<GateAnchorRef>(
@@ -35,6 +37,7 @@ const GateGroupSchema = new Schema<GateGroupRecord>(
         _id: false,
       },
     ],
+    revokedIdHashes: { type: [String], default: [] },
   },
   { collection: "gate_groups", minimize: false }
 );

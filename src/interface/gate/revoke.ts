@@ -13,15 +13,17 @@ const revokeValidation = {
     idHash: Joi.string().required(),
     ownerUcan: Joi.string().required(),
     epoch: Joi.number().integer().min(1).max(Number.MAX_SAFE_INTEGER).required(),
+    addToDenylist: Joi.boolean().optional(),
   }),
 };
 
 async function revokeMember(req: Request, res: Response): Promise<void> {
-  const { docId, idHash, ownerUcan, epoch } = req.body as {
+  const { docId, idHash, ownerUcan, epoch, addToDenylist } = req.body as {
     docId: string;
     idHash: string;
     ownerUcan: string;
     epoch: number;
+    addToDenylist?: boolean;
   };
 
   const doc = await getGateDoc(docId);
@@ -29,7 +31,7 @@ async function revokeMember(req: Request, res: Response): Promise<void> {
 
   await assertOwnerAuthorized(ownerUcan, docId, doc.anchorRef);
 
-  const outcome = await revokeGateMember(docId, idHash, epoch);
+  const outcome = await revokeGateMember(docId, idHash, epoch, addToDenylist ?? true);
   if (outcome.kind === "unknown-doc") return throwError({ code: 404, message: GateErrorCode.DOC_NOT_REGISTERED });
   if (outcome.kind === "stale-epoch") {
     return throwError({

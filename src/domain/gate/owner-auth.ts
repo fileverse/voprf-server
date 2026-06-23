@@ -1,6 +1,8 @@
 // UCAN validation for the gate (§5.1). Tokens are self-audience (aud = iss =
-// ownerDid; there is no gate DID), so there's no delegation chain to walk —
-// ucans.validate() covers signature + time, the capability/issuer checks are manual.
+// ownerDid; there is no gate DID), so there's no delegation chain to walk. We use
+// the library directly: ucans.validate() covers signature + time + self-audience,
+// ucans.verify() does the capability match; only the issuer→on-chain-owner check
+// stays manual (it's an external fact the UCAN can't carry).
 // Capability shape mirrors the client mint: with {scheme:'gate', hierPart:docId},
 // can {namespace:'gate', segments:['ADMIN'|'INVITE']}.
 import * as ucans from "@ucans/ucans";
@@ -18,7 +20,7 @@ export interface ValidatedGateUcan {
 
 export const validateGateUcan = async (
   token: string,
-  docId: string,
+  hierPart: string,
   segment: GateAbilitySegment
 ): Promise<ValidatedGateUcan> => {
   let parsed: Awaited<ReturnType<typeof ucans.validate>>;
@@ -33,23 +35,26 @@ export const validateGateUcan = async (
     return throwError({ code: 401, message: GateErrorCode.INVALID_UCAN });
   }
 
-  const hasCapability = parsed.payload.att.some((capability) => {
-    const withPart = capability.with;
-    const canPart = capability.can;
-    return (
-      typeof withPart === "object" &&
-      withPart !== null &&
-      withPart.scheme === "gate" &&
-      withPart.hierPart === docId &&
-      typeof canPart === "object" &&
-      canPart !== null &&
-      canPart.namespace === "gate" &&
-      Array.isArray(canPart.segments) &&
-      canPart.segments.length === 1 &&
-      canPart.segments[0] === segment
-    );
+  // Capability check — delegated to @ucans/ucans's own matcher rather than hand-walking
+  // payload.att. The token is self-signed by the owner (no proofs), so the required
+  // capability is rooted at the token's OWN issuer (rootIssuer = iss). It is deliberately
+  // NOT rooted at the on-chain owner: that cross-check stays separate (assertIssuerIs*)
+  // so a valid-cap/wrong-owner token fails with NOT_DOC_OWNER, not a generic cap error.
+  // Default equalCanDelegate semantics preserve the old strict match (ADMIN ≠ INVITE,
+  // exact single segment); the scheme/namespace matching is case-insensitive per the lib.
+  const verification = await ucans.verify(token, {
+    audience: parsed.payload.aud,
+    requiredCapabilities: [
+      {
+        capability: {
+          with: { scheme: "gate", hierPart },
+          can: { namespace: "gate", segments: [segment] },
+        },
+        rootIssuer: parsed.payload.iss,
+      },
+    ],
   });
-  if (!hasCapability) {
+  if (!verification.ok) {
     return throwError({ code: 403, message: GateErrorCode.MISSING_CAPABILITY });
   }
 

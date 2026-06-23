@@ -3,7 +3,7 @@
 import { GateDoc } from "../../infra/database/models";
 import { getGateDoc } from "./get";
 
-export type EnrollOutcome = "added" | "noop" | "relabeled" | "pin-conflict" | "unknown-doc";
+export type EnrollOutcome = "added" | "noop" | "relabeled" | "pin-conflict" | "unknown-doc" | "revoked";
 
 /**
  * PIN+ADD. The update filter excludes docs already binding this idHash (and already
@@ -19,6 +19,7 @@ export const appendEnrollment = async (
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const doc = await getGateDoc(docId);
     if (!doc) return "unknown-doc";
+    if ((doc.revokedIdHashes ?? []).includes(idHash)) return "revoked";
     const bound = doc.bindings.find((b) => b.idHash === idHash);
     if (bound) {
       if (bound.commitment !== commitment) return "pin-conflict";
@@ -42,6 +43,7 @@ export const appendEnrollment = async (
     const filter: Record<string, unknown> = {
       docId,
       "bindings.idHash": { $ne: idHash },
+      revokedIdHashes: { $ne: idHash },
       ...(memberAlready ? { members: commitment } : { members: { $ne: commitment } }),
     };
     const update = memberAlready

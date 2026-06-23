@@ -44,6 +44,9 @@ async function enrollMember(req: Request, res: Response): Promise<void> {
 
   const outcome = await appendEnrollment(docId, claims.idHash, commitment, claims.role);
   if (outcome === "unknown-doc") return throwError({ code: 404, message: GateErrorCode.DOC_NOT_REGISTERED });
+  if (outcome === "revoked") {
+    return throwError({ code: 403, message: GateErrorCode.IDENTITY_REVOKED });
+  }
   if (outcome === "pin-conflict") {
     return throwError({
       code: 409,

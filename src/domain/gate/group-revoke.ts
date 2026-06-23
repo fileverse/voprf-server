@@ -22,15 +22,27 @@ export const revokeGateGroupMember = async (
     if (!group) return { kind: "unknown-group" };
 
     const binding = group.bindings.find((b) => b.idHash === idHash);
-    if (!binding) return { kind: "ok" }; // never-enrolled / already-removed — terminal no-op.
+    if (!binding) {
+      // Never-enrolled / already-removed: record the revocation, but pin "still no
+      // binding for this idHash" — if a concurrent first-enroll added one in this
+      // window, the filter misses → we retry, re-read, and take the pull path below
+      // (evicting them) instead of leaving them enrolled-but-denylisted.
+      const denyResult = await GateGroup.updateOne(
+        { groupRef, "bindings.idHash": { $ne: idHash } },
+        { $addToSet: { revokedIdHashes: idHash } }
+      );
+      if (denyResult.matchedCount === 1) return { kind: "ok" };
+      continue; // a binding appeared concurrently — re-read into the pull path
+    }
 
-    // Pin the exact snapshot binding: a concurrent commitment swap misses → re-read.
-    // Pull every binding sharing this commitment, not just this idHash: a sibling
-    // identifier's dangling binding would otherwise block future re-enroll. Re-entry
-    // stays possible via any valid voucher (the blob is the authorization truth).
+    // Pin the exact snapshot binding; pull every binding sharing this commitment and
+    // record the revocation atomically.
     const result = await GateGroup.updateOne(
       { groupRef, bindings: { $elemMatch: { idHash, commitment: binding.commitment } } },
-      { $pull: { members: binding.commitment, bindings: { commitment: binding.commitment } } }
+      {
+        $pull: { members: binding.commitment, bindings: { commitment: binding.commitment } },
+        $addToSet: { revokedIdHashes: idHash },
+      }
     );
     if (result.matchedCount === 1) return { kind: "ok" };
     // Missed: the binding drifted — re-read decides.
