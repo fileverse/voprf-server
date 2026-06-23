@@ -9,6 +9,7 @@ export type { RevokeOutcome } from "./revoke";
 export { computeGroupRoot } from "./group";
 export { createGateNonce, listLiveNonces, consumeGateNonce } from "./nonce";
 export { deriveGateShare } from "./share-derivation";
+export type { GateRole } from "./share-derivation";
 export {
   isCanonicalDecimalBigInt,
   parseProofShape,
@@ -30,6 +31,7 @@ export type { GroupRevokeOutcome } from "./group-revoke";
 export { attachGroupToDoc, detachGroupFromDoc } from "./group-attach";
 export type { AttachOutcome } from "./group-attach";
 export { resolveAcceptedRoots } from "./resolve-roots";
+export type { AcceptedRootEntry } from "./resolve-roots";
 export {
   validateGateUcan,
   assertOwnerAuthorized,

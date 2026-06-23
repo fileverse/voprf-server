@@ -51,14 +51,24 @@ async function releaseGateShare(req: Request, res: Response): Promise<void> {
     return throwError({ code: 403, message: GateErrorCode.NONCE_NOT_LIVE });
   }
 
-  // Additive implicit group: accept the proof if its root is in the UNION of the
-  // doc's own implicit-group root + each attached group's root (groups-semaphore §3).
-  const currentRoots = await resolveAcceptedRoots(doc);
-  assertRootInSet(shape, currentRoots);
+  // Additive implicit group + per-role roots: accept the proof if its root is in the
+  // union of role-filtered roots; the matched entry's role decides the share bundle.
+  const acceptedEntries = await resolveAcceptedRoots(doc);
+  assertRootInSet(shape, acceptedEntries.map((e) => e.root));
   await assertProofValid(shape);
 
-  // The gate's OWN currentEpoch — the client never supplies one (anti-pre-fetch).
-  res.json({ gateShare: deriveGateShare(masterKey, doc.anchorRef, doc.currentEpoch) });
+  // Which accepted entry did the proof match? (assertRootInSet already guaranteed one.)
+  const matchedEntry = acceptedEntries.find((e) => e.root === shape.merkleTreeRoot);
+  if (!matchedEntry) return throwError({ code: 409, message: GateErrorCode.STALE_GROUP_ROOT });
+
+  // Bundle by hierarchy (comment ⊇ view), derived at the gate's OWN currentEpoch.
+  const shares: { view: string; comment?: string } = {
+    view: deriveGateShare(masterKey, doc.anchorRef, doc.currentEpoch, "view"),
+  };
+  if (matchedEntry.role === "comment") {
+    shares.comment = deriveGateShare(masterKey, doc.anchorRef, doc.currentEpoch, "comment");
+  }
+  res.json({ shares });
 }
 
 // convert:false: uniform with the other gate schemas.

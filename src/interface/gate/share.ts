@@ -30,7 +30,12 @@ async function shareGateShare(req: Request, res: Response): Promise<void> {
   if (!doc) return throwError({ code: 404, message: GateErrorCode.DOC_NOT_REGISTERED });
 
   await assertOwnerAuthorized(ownerUcan, docId, doc.anchorRef);
-  res.json({ gateShare: deriveGateShare(masterKey, doc.anchorRef, epoch) });
+  res.json({
+    shares: {
+      view: deriveGateShare(masterKey, doc.anchorRef, epoch, "view"),
+      comment: deriveGateShare(masterKey, doc.anchorRef, epoch, "comment"),
+    },
+  });
 }
 
 // convert:false: epoch must arrive as a JSON number.

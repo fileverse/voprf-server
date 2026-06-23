@@ -3,7 +3,7 @@
 import { GateDoc } from "../../infra/database/models";
 import { getGateDoc } from "./get";
 
-export type EnrollOutcome = "added" | "noop" | "pin-conflict" | "unknown-doc";
+export type EnrollOutcome = "added" | "noop" | "relabeled" | "pin-conflict" | "unknown-doc";
 
 /**
  * PIN+ADD. The update filter excludes docs already binding this idHash (and already
@@ -20,7 +20,20 @@ export const appendEnrollment = async (
     const doc = await getGateDoc(docId);
     if (!doc) return "unknown-doc";
     const bound = doc.bindings.find((b) => b.idHash === idHash);
-    if (bound) return bound.commitment === commitment ? "noop" : "pin-conflict";
+    if (bound) {
+      if (bound.commitment !== commitment) return "pin-conflict";
+      if (bound.role === role) return "noop";
+      // Same identity, role changed (tier switch / role change): relabel the binding,
+      // moving the member between the view/comment role-filtered sets (no member churn,
+      // commitment unchanged). $elemMatch pins the exact (idHash, commitment) binding.
+      const relabel = await GateDoc.updateOne(
+        { docId, bindings: { $elemMatch: { idHash, commitment } } },
+        { $set: { "bindings.$.role": role } },
+        { runValidators: true }
+      );
+      if (relabel.modifiedCount === 1) return "relabeled";
+      continue; // raced with a concurrent mutation — re-read
+    }
 
     // Same Privy user via a second identifier reuses their commitment: append the
     // binding only, never a duplicate member. The memberAlready arm requires

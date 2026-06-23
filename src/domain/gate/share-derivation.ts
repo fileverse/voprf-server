@@ -23,10 +23,18 @@ const portalAddressBytes = (portalAddress: string): Buffer => {
   return Buffer.from(hex, "hex");
 };
 
+export type GateRole = "view" | "comment";
+
+const ROLE_BYTE: Record<GateRole, number> = { view: 0x01, comment: 0x02 };
+
 // Fixed-width fields after the NUL-terminated tag make the encoding injective: no
-// two distinct (chainId, portal, fileId, epoch) tuples collide on the PRF input.
-export const deriveGateShare = (masterKey: Buffer, anchorRef: GateAnchorRef, epoch: number): string => {
-  // HMAC silently accepts any key length, so fail loudly on a wrong-length key.
+// two distinct (chainId, portal, fileId, epoch, role) tuples collide on the PRF input.
+export const deriveGateShare = (
+  masterKey: Buffer,
+  anchorRef: GateAnchorRef,
+  epoch: number,
+  role: GateRole
+): string => {
   if (masterKey.length !== 32) {
     throw new Error("gate share derivation: master key must be exactly 32 bytes");
   }
@@ -37,6 +45,7 @@ export const deriveGateShare = (masterKey: Buffer, anchorRef: GateAnchorRef, epo
     portalAddressBytes(anchorRef.portalAddress),
     uint64BE(anchorRef.fileId, "fileId"),
     uint64BE(epoch, "epoch"),
+    Buffer.from([ROLE_BYTE[role]]),
   ]);
   return createHmac("sha256", masterKey).update(input).digest("base64");
 };

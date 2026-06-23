@@ -1,5 +1,7 @@
 // gate-interop-harness.ts — plays the ddocs.new GP client byte-for-byte against
-// a locally spawned gate (docs/gate-server-design.md §11, scenarios H1–H13; H10 retired with key versioning).
+// a locally spawned gate (docs/gate-server-design.md §11, scenarios H1–H24; H10 retired with key
+// versioning). H22–H24 cover the per-role (view/comment) boundary: distinct role shares, the
+// crypto boundary (view unwraps fileKey only), and the enroll role-relabel tier-switch primitive.
 // NO test framework: scenarios run sequentially, one "Hn … ok" line each; the
 // first failed assertion throws with a diagnostic and the process exits 1.
 //
@@ -50,10 +52,10 @@ interface GateReply {
   body: Record<string, unknown> | undefined;
 }
 
-/** Diagnostic-safe body: gateShare values must never reach stdout. */
+/** Diagnostic-safe body: share material (now the per-role `shares` bundle) must never reach stdout. */
 const redactedBody = (reply: GateReply): string =>
   JSON.stringify(
-    reply.body && "gateShare" in reply.body ? { ...reply.body, gateShare: "<redacted>" } : reply.body
+    reply.body && "shares" in reply.body ? { ...reply.body, shares: "<redacted>" } : reply.body
   );
 
 /**
@@ -355,14 +357,20 @@ const main = async (): Promise<void> => {
         .setExpirationTime("1h")
         .sign(privyPrivate);
 
-    const fetchGroup = async (
-      scenario: string,
-      forDocId: string
-    ): Promise<{ root: string; members: string[] }> => {
+    type RoleGroup = { root: string; members: string[] };
+    type DocGroupRoles = { view: RoleGroup; comment: RoleGroup };
+
+    // The doc group endpoint now returns per-role lists. Existing scenarios use the VIEW
+    // role (their implicit group registers as "view"), so fetchGroup defaults to that list;
+    // fetchDocGroupRoles exposes both for the role-aware release path (and H23/H24).
+    const fetchDocGroupRoles = async (scenario: string, forDocId: string): Promise<DocGroupRoles> => {
       const reply = await callGate("GET", `/doc/${forDocId}/group`);
       ensure(scenario, `GET /doc/${forDocId}/group`, reply.status === 200, `got ${reply.status}`);
-      return reply.body as unknown as { root: string; members: string[] };
+      return reply.body as unknown as DocGroupRoles;
     };
+
+    const fetchGroup = async (scenario: string, forDocId: string): Promise<RoleGroup> =>
+      (await fetchDocGroupRoles(scenario, forDocId)).view;
 
     /** POST /challenge, response-checked: asserts 200 + a non-empty string nonce, returns it. */
     const mintChallenge = async (scenario: string, forDocId: string): Promise<string> => {
@@ -378,7 +386,9 @@ const main = async (): Promise<void> => {
       return nonce as string;
     };
 
-    /** Full member release flow (reader.ts §2–4): challenge → local LeanIMT → proof → /release. */
+    /** Full member release flow (reader.ts §2–4): challenge → local LeanIMT → proof → /release.
+     * Role-aware: with no override, prove the role-filtered root that CONTAINS this identity's
+     * commitment (comment set if present, else view) — mirroring the real client (Task 2.3). */
     const releaseAs = async (
       scenario: string,
       identity: Identity,
@@ -386,7 +396,14 @@ const main = async (): Promise<void> => {
       membersOverride?: string[]
     ): Promise<GateReply> => {
       const nonce = await mintChallenge(scenario, forDocId);
-      const members = membersOverride ?? (await fetchGroup(scenario, forDocId)).members;
+      let members: string[];
+      if (membersOverride) {
+        members = membersOverride;
+      } else {
+        const roles = await fetchDocGroupRoles(scenario, forDocId);
+        const me = identity.commitment.toString();
+        members = roles.comment.members.includes(me) ? roles.comment.members : roles.view.members;
+      }
       const group = new Group(members.map(BigInt));
       const proof = await generateProof(identity, group, nonce, forDocId); // message=nonce, scope=docId
       return callGate("POST", "/release", { docId: forDocId, proof });
@@ -437,8 +454,14 @@ const main = async (): Promise<void> => {
       ownerUcan: await mintAdminUcan(docId),
     });
     ensureReply(h1, "share epoch 0", shareEpoch0, 200);
-    const ownerShare0 = shareEpoch0.body?.gateShare as string;
-    ensure(h1, "share gateShare decodes to 32 bytes", Buffer.from(ownerShare0 ?? "", "base64").length === 32);
+    const ownerShares0 = shareEpoch0.body?.shares as { view: string; comment: string };
+    const ownerShare0 = ownerShares0?.view;
+    ensure(h1, "share view decodes to 32 bytes", Buffer.from(ownerShare0 ?? "", "base64").length === 32);
+    ensure(
+      h1,
+      "owner /share also returns a comment share",
+      Buffer.from(ownerShares0?.comment ?? "", "base64").length === 32
+    );
 
     const voucherOne = await mintVoucher(docId, memberOneEmail);
     const enrollOne = await callGate("POST", "/enroll", {
@@ -464,9 +487,11 @@ const main = async (): Promise<void> => {
 
     const releaseOne = await releaseAs(h1, memberOne, docId);
     ensureReply(h1, "release (single-member group, depth-1 proof)", releaseOne, 200);
-    const memberShare0 = releaseOne.body?.gateShare as string;
-    ensure(h1, "CORE share(0) === release bytes", ownerShare0 === memberShare0, "gateShare bytes mismatch");
-    console.log("H1 register/share/enroll/group/release + gateShare byte-equality ... ok");
+    const memberShares0 = releaseOne.body?.shares as { view: string; comment?: string };
+    const memberShare0 = memberShares0?.view;
+    ensure(h1, "CORE share(view,0) === release(view) bytes", ownerShare0 === memberShare0, "view share bytes mismatch");
+    ensure(h1, "view member gets NO comment share", memberShares0?.comment === undefined);
+    console.log("H1 register/share/enroll/group/release + view-share byte-equality ... ok");
 
     // ================= H2: end-to-end wrap/unwrap through both shares =================
     const h2 = "H2";
@@ -572,10 +597,10 @@ const main = async (): Promise<void> => {
       ownerUcan: await mintAdminUcan(docId),
     });
     ensureReply(h6, "owner pulls epoch-1 share before the cut", shareEpoch1, 200);
-    const ownerShare1 = shareEpoch1.body?.gateShare as string;
+    const ownerShare1 = (shareEpoch1.body?.shares as { view: string })?.view;
     // Presence first — a missing/renamed key must fail loudly, not satisfy `undefined !== x`.
-    ensure(h6, "epoch-1 gateShare decodes to 32 bytes", Buffer.from(ownerShare1 ?? "", "base64").length === 32);
-    ensure(h6, "epoch-1 share differs from epoch-0", ownerShare1 !== ownerShare0, "gateShare bytes identical");
+    ensure(h6, "epoch-1 view share decodes to 32 bytes", Buffer.from(ownerShare1 ?? "", "base64").length === 32);
+    ensure(h6, "epoch-1 share differs from epoch-0", ownerShare1 !== ownerShare0, "view share bytes identical");
 
     const revokeTwo = await callGate("POST", "/revoke", {
       docId,
@@ -603,8 +628,8 @@ const main = async (): Promise<void> => {
     ensure(
       h6,
       "survivor receives the epoch-1 share",
-      survivorRelease.body?.gateShare === ownerShare1,
-      "gateShare bytes mismatch vs owner's epoch-1 pull"
+      (survivorRelease.body?.shares as { view: string })?.view === ownerShare1,
+      "view share bytes mismatch vs owner's epoch-1 pull"
     );
     console.log("H6 revoke: stale-root 409 for removed member; survivor gets the epoch-1 share ... ok");
 
@@ -645,9 +670,9 @@ const main = async (): Promise<void> => {
     ensure(h8, "membership unchanged", (await fetchGroup(h8, docId)).members.includes(memberOneCommitment));
     const releaseAtTwo = await releaseAs(h8, memberOne, docId);
     ensureReply(h8, "release at epoch 2", releaseAtTwo, 200);
-    const epochTwoShare = releaseAtTwo.body?.gateShare as string;
+    const epochTwoShare = (releaseAtTwo.body?.shares as { view: string })?.view;
     // Presence first — a missing/renamed key must fail loudly, not satisfy `undefined !== x`.
-    ensure(h8, "epoch-2 gateShare decodes to 32 bytes", Buffer.from(epochTwoShare ?? "", "base64").length === 32);
+    ensure(h8, "epoch-2 view share decodes to 32 bytes", Buffer.from(epochTwoShare ?? "", "base64").length === 32);
     ensure(
       h8,
       "release now serves the epoch-2 share (≠ epoch-1)",
@@ -877,7 +902,7 @@ const main = async (): Promise<void> => {
       ownerUcan: await mintAdminUcan(docG),
     });
     ensureReply(h15, "owner share docG epoch 0", shareDocG0, 200);
-    const ownerShareDocG0 = shareDocG0.body?.gateShare as string;
+    const ownerShareDocG0 = (shareDocG0.body?.shares as { view: string })?.view;
     const docGFileKey = randomBytes(32);
     const docGWrappedFileKey = await wrapWithKey(docGFileKey, deriveWrapKeyBytes(seed, ownerShareDocG0, salt));
 
@@ -892,7 +917,7 @@ const main = async (): Promise<void> => {
     // The group member proves the GROUP root, scope=docG → /release.
     const groupReleaseG = await releaseViaGroup(h15, memberOne, docG, groupId);
     ensureReply(h15, "group member releases via group root", groupReleaseG, 200);
-    const groupMemberShareG = groupReleaseG.body?.gateShare as string;
+    const groupMemberShareG = (groupReleaseG.body?.shares as { view: string })?.view;
     ensure(
       h15,
       "CORE Option A: group-release share === owner epoch-0 share",
@@ -929,7 +954,7 @@ const main = async (): Promise<void> => {
       ownerUcan: await mintAdminUcan(docU),
     });
     ensureReply(h16, "owner share docU epoch 0", shareDocU0, 200);
-    const ownerShareDocU0 = shareDocU0.body?.gateShare as string;
+    const ownerShareDocU0 = (shareDocU0.body?.shares as { view: string })?.view;
     const docUFileKey = randomBytes(32);
     const docUWrappedFileKey = await wrapWithKey(docUFileKey, deriveWrapKeyBytes(seed, ownerShareDocU0, salt));
 
@@ -965,12 +990,12 @@ const main = async (): Promise<void> => {
     // Individual proof (docU's own members) releases.
     const individualReleaseU = await releaseAs(h16, memberTwo, docU);
     ensureReply(h16, "individual proof releases", individualReleaseU, 200);
-    const individualShareU = individualReleaseU.body?.gateShare as string;
+    const individualShareU = (individualReleaseU.body?.shares as { view: string })?.view;
 
     // Group proof (the named group's members) releases.
     const groupReleaseU = await releaseViaGroup(h16, memberOne, docU, groupId);
     ensureReply(h16, "group proof releases", groupReleaseU, 200);
-    const groupShareU = groupReleaseU.body?.gateShare as string;
+    const groupShareU = (groupReleaseU.body?.shares as { view: string })?.view;
 
     // Option A: both doors return the IDENTICAL share, and both unwrap the SAME fileKey.
     ensure(
@@ -1104,7 +1129,186 @@ const main = async (): Promise<void> => {
     ensureReply(h21, "cross-portal register acceptedRoots", crossPortalRegister, 403, "CROSS_PORTAL_ATTACH");
     console.log("H21 cross-portal register acceptedRoots (group portal != doc portal) 403 ... ok");
 
-    console.log("\nALL 20 SCENARIOS PASSED");
+    // ================= H22: owner /share returns DISTINCT per-role shares =================
+    const h22 = "H22";
+    const h22Share = await callGate("POST", "/share", {
+      docId,
+      epoch: 0,
+      ownerUcan: await mintAdminUcan(docId),
+    });
+    ensureReply(h22, "owner share (role bundle)", h22Share, 200);
+    const h22Shares = h22Share.body?.shares as { view: string; comment: string };
+    ensure(
+      h22,
+      "view and comment shares differ (role byte in the PRF)",
+      typeof h22Shares?.view === "string" && h22Shares.view !== h22Shares.comment
+    );
+    ensure(
+      h22,
+      "both role shares decode to 32 bytes",
+      Buffer.from(h22Shares?.view ?? "", "base64").length === 32 &&
+        Buffer.from(h22Shares?.comment ?? "", "base64").length === 32
+    );
+    console.log("H22 owner /share returns distinct view/comment shares ... ok");
+
+    // ================= H23: per-role cryptographic boundary (view ≠ comment access) =======
+    // A view member unwraps fileKey but can NEVER obtain the comment share to unwrap
+    // commentKey; a comment member unwraps BOTH. This is the v2 boundary (the keystone).
+    const h23 = "H23";
+    const docR = `rd-${runTag}`;
+    const anchorR = { ...anchorRef, fileId: 41 }; // fileId unused elsewhere
+    const registerR = await callGate("POST", "/register", {
+      docId: docR,
+      acceptedRoots: [
+        { groupRef: docR, role: "view" },
+        { groupRef: docR, role: "comment" },
+      ],
+      ownerUcan: await mintAdminUcan(docR),
+      anchorRef: anchorR,
+    });
+    ensureReply(h23, "register role doc", registerR, 200);
+
+    const ownerR = (
+      await callGate("POST", "/share", { docId: docR, epoch: 0, ownerUcan: await mintAdminUcan(docR) })
+    ).body?.shares as { view: string; comment: string };
+
+    const h23FileKey = randomBytes(32);
+    const h23CommentKey = randomBytes(32);
+    const h23WrappedFile = await wrapWithKey(h23FileKey, deriveWrapKeyBytes(seed, ownerR.view, salt));
+    const h23WrappedComment = await wrapWithKey(h23CommentKey, deriveWrapKeyBytes(seed, ownerR.comment, salt));
+
+    const vId = new Identity(`harness-view-member-${runTag}`);
+    const vVoucher = await mintVoucher(docR, "view-member@example.com", "view");
+    ensureReply(
+      h23,
+      "enroll view member",
+      await callGate("POST", "/enroll", {
+        docId: docR,
+        voucher: vVoucher.token,
+        commitment: vId.commitment.toString(),
+        privyIdToken: await mintPrivyToken(["view-member@example.com"]),
+      }),
+      204
+    );
+
+    const cId = new Identity(`harness-comment-member-${runTag}`);
+    const cVoucher = await mintVoucher(docR, "comment-member@example.com", "comment");
+    ensureReply(
+      h23,
+      "enroll comment member",
+      await callGate("POST", "/enroll", {
+        docId: docR,
+        voucher: cVoucher.token,
+        commitment: cId.commitment.toString(),
+        privyIdToken: await mintPrivyToken(["comment-member@example.com"]),
+      }),
+      204
+    );
+
+    const vRel = await releaseAs(h23, vId, docR);
+    ensureReply(h23, "view member releases", vRel, 200);
+    const vShares = vRel.body?.shares as { view: string; comment?: string };
+    const cRel = await releaseAs(h23, cId, docR);
+    ensureReply(h23, "comment member releases", cRel, 200);
+    const cShares = cRel.body?.shares as { view: string; comment?: string };
+
+    ensure(
+      h23,
+      "view member gets the view share and NO comment share",
+      vShares.view === ownerR.view && vShares.comment === undefined
+    );
+    ensure(
+      h23,
+      "comment member gets BOTH shares",
+      cShares.view === ownerR.view && cShares.comment === ownerR.comment
+    );
+
+    const vFile = await unwrapWithKey(h23WrappedFile, deriveWrapKeyBytes(seed, vShares.view, salt));
+    ensure(h23, "view member unwraps fileKey", !!vFile && Buffer.from(vFile).equals(h23FileKey));
+    ensure(h23, "view member has no comment share to unwrap commentKey", vShares.comment === undefined);
+
+    const cFile = await unwrapWithKey(h23WrappedFile, deriveWrapKeyBytes(seed, cShares.view, salt));
+    const cComment = await unwrapWithKey(
+      h23WrappedComment,
+      deriveWrapKeyBytes(seed, cShares.comment as string, salt)
+    );
+    ensure(
+      h23,
+      "comment member unwraps fileKey AND commentKey",
+      !!cFile &&
+        Buffer.from(cFile).equals(h23FileKey) &&
+        !!cComment &&
+        Buffer.from(cComment).equals(h23CommentKey)
+    );
+    console.log("H23 per-role boundary: view unwraps fileKey only, comment unwraps both ... ok");
+
+    // ================= H24: enroll role-relabel (tier-switch primitive) ===================
+    // Re-enrolling the SAME identity with a different-role voucher relabels its binding,
+    // moving it between the view/comment sets — the gate primitive powering changeTier.
+    const h24 = "H24";
+    const docT = `td-${runTag}`;
+    const anchorT = { ...anchorRef, fileId: 42 }; // fileId unused elsewhere
+    ensureReply(
+      h24,
+      "register tier doc",
+      await callGate("POST", "/register", {
+        docId: docT,
+        acceptedRoots: [
+          { groupRef: docT, role: "view" },
+          { groupRef: docT, role: "comment" },
+        ],
+        ownerUcan: await mintAdminUcan(docT),
+        anchorRef: anchorT,
+      }),
+      200
+    );
+
+    const tId = new Identity(`harness-tier-member-${runTag}`);
+    const tEmail = "tier-member@example.com";
+    ensureReply(
+      h24,
+      "enroll as view",
+      await callGate("POST", "/enroll", {
+        docId: docT,
+        voucher: (await mintVoucher(docT, tEmail, "view")).token,
+        commitment: tId.commitment.toString(),
+        privyIdToken: await mintPrivyToken([tEmail]),
+      }),
+      204
+    );
+    let tShares = (await releaseAs(h24, tId, docT)).body?.shares as { view: string; comment?: string };
+    ensure(h24, "view-bound member gets no comment share", tShares.comment === undefined);
+
+    ensureReply(
+      h24,
+      "re-enroll relabels view → comment",
+      await callGate("POST", "/enroll", {
+        docId: docT,
+        voucher: (await mintVoucher(docT, tEmail, "comment")).token,
+        commitment: tId.commitment.toString(),
+        privyIdToken: await mintPrivyToken([tEmail]),
+      }),
+      204
+    );
+    tShares = (await releaseAs(h24, tId, docT)).body?.shares as { view: string; comment?: string };
+    ensure(h24, "relabeled member now gets the comment share", tShares.comment !== undefined);
+
+    ensureReply(
+      h24,
+      "re-enroll relabels comment → view",
+      await callGate("POST", "/enroll", {
+        docId: docT,
+        voucher: (await mintVoucher(docT, tEmail, "view")).token,
+        commitment: tId.commitment.toString(),
+        privyIdToken: await mintPrivyToken([tEmail]),
+      }),
+      204
+    );
+    tShares = (await releaseAs(h24, tId, docT)).body?.shares as { view: string; comment?: string };
+    ensure(h24, "downgraded member: comment share gone", tShares.comment === undefined);
+    console.log("H24 enroll role-relabel (tier-switch primitive) ... ok");
+
+    console.log("\nALL 23 SCENARIOS PASSED");
   } finally {
     await stopGate();
     try {
