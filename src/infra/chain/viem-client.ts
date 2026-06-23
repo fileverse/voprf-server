@@ -1,9 +1,3 @@
-// Single-network public client: NETWORK picks the chain, RPC_URL is its endpoint.
-// Created lazily (never at import) so a missing/bad NETWORK|RPC_URL surfaces as a
-// gate-path error rather than crashing the process and taking the VOPRF routes
-// down with it. Chainless on purpose: importing `viem/chains` drags in ox@0.14.29's
-// .ts source, which fails tsc under this repo's lib:ES2020 — and read-only calls
-// need no Chain object anyway.
 import { createPublicClient, http, type PublicClient } from "viem";
 import { config } from "../../config";
 

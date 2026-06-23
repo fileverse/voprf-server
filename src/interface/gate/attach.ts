@@ -1,7 +1,4 @@
-// POST /gate/doc/:docId/attach and /detach — add/remove a group's root from the doc's
-// acceptedRoots (Option A: routing only, no key, no re-wrap). Authorized by the DOC
-// owner (any workspace member via their OWN doc's ownerSecret — groups-semaphore §11);
-// the group is never modified here. Cross-portal rule enforced on attach.
+
 import { Request, Response } from "express";
 import { validate, Joi } from "../middleware";
 import { throwError } from "../../infra/error-handler";

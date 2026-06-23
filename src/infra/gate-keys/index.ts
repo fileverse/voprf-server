@@ -1,7 +1,3 @@
-// k_gate master key (§4). The Buffer is module-private so a config dump can't leak
-// key bytes — getGateMasterKey() is the only egress. Loaded once at boot; misconfig
-// (a malformed key, or the dev override in production) kills the process. v1 uses a
-// single canonical key — versioning/rotation is deferred.
 import { config } from "../../config";
 
 let masterKeyPrivate: Buffer | undefined;
@@ -17,16 +13,6 @@ const parseMasterKey = (raw: string | undefined): Buffer | undefined => {
 };
 
 export const loadGateKeys = (): void => {
-  if (config.GATE_DEV_OWNER_DID_OVERRIDE && config.NODE_ENV === "production") {
-    throw new Error(
-      "gate keys: GATE_DEV_OWNER_DID_OVERRIDE bypasses on-chain owner verification and must NOT be set in production"
-    );
-  }
-  if (config.PRIVY_VERIFICATION_KEY && config.NODE_ENV === "production") {
-    throw new Error(
-      "gate keys: PRIVY_VERIFICATION_KEY enables offline (local-SPKI) identity-token verification and must NOT be set in production"
-    );
-  }
   if (loaded) return;
   // A missing key is non-fatal (gate routes 503 until set); a malformed one throws.
   masterKeyPrivate = parseMasterKey(config.GATE_MASTER_KEY);

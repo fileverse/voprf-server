@@ -21,10 +21,8 @@
   "license": "MIT",
   "dependencies": {
     "@cloudflare/voprf-ts": "^1.0.0",
-    "@noble/hashes": "^1.8.0",
     "@privy-io/node": "^0.21.0",
     "@semaphore-protocol/group": "^4.13.1",
-    "@semaphore-protocol/identity": "^4.13.1",
     "@semaphore-protocol/proof": "^4.13.1",
     "@ucans/ucans": "^0.12.0",
     "bunyan": "^1.8.15",
@@ -34,7 +32,6 @@
     "express": "^4.18.2",
     "express-validation": "^4.1.1",
     "helmet": "^7.1.0",
-    "jose": "^5.10.0",
     "js-base64": "^3.7.7",
     "mongoose": "^6.5.4",
     "morgan": "^1.10.0",

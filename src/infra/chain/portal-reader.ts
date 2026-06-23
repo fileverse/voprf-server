@@ -1,7 +1,6 @@
 // On-chain owner-DID read: FileverseApp.files(fileId).owner → collaboratorKeys(owner).
 // Read on every admin call (never cached) so ownership transfers are followed.
 import { getAddress } from "viem";
-import { config } from "../../config";
 import { configuredChainId, getPublicClient } from "./viem-client";
 import { throwError } from "../error-handler";
 import { GateErrorCode } from "../gate-errors";
@@ -51,9 +50,6 @@ const OWNER_ABI = [
 ] as const;
 
 export const readOnChainOwnerDid = async (anchorRef: GateAnchorRef): Promise<string> => {
-  // Dev/harness only; boot-refused in production (infra/gate-keys).
-  if (config.GATE_DEV_OWNER_DID_OVERRIDE) return config.GATE_DEV_OWNER_DID_OVERRIDE;
-
   // A sepolia anchor must never be read against the gnosis gate, or vice-versa.
   if (anchorRef.chainId !== configuredChainId) {
     throwError({
@@ -82,13 +78,8 @@ export const readOnChainOwnerDid = async (anchorRef: GateAnchorRef): Promise<str
 
 // Group owner-auth basis: the on-chain PORTAL owner's DID (not a per-file owner).
 // Read on every group admin call (never cached) so portal ownership transfers are
-// followed. CRITICAL: honour GATE_DEV_OWNER_DID_OVERRIDE by short-circuiting BEFORE
-// any RPC, exactly like readOnChainOwnerDid — the interop harness never dials RPC, so
-// without this short-circuit every group register/enroll/revoke fails owner-auth.
+// followed.
 export const readOnChainPortalOwnerDid = async (anchorRef: GateAnchorRef): Promise<string> => {
-  // Dev/harness only; boot-refused in production (infra/gate-keys).
-  if (config.GATE_DEV_OWNER_DID_OVERRIDE) return config.GATE_DEV_OWNER_DID_OVERRIDE;
-
   // A sepolia anchor must never be read against the gnosis gate, or vice-versa.
   if (anchorRef.chainId !== configuredChainId) {
     throwError({

@@ -1,5 +1,4 @@
-// POST /gate/challenge — issue a single-use nonce for a registered doc. No owner
-// UCAN: anyone may request a challenge; only a valid proof (release) spends it.
+
 import { Request, Response } from "express";
 import { validate, Joi } from "../middleware";
 import { throwError } from "../../infra/error-handler";

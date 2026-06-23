@@ -1,5 +1,4 @@
-// POST /gate/enroll — full chain: Privy verify → voucher claims → issuer ===
-// on-chain owner (stored anchor) → BIND → PIN+ADD.
+
 import { Request, Response } from "express";
 import { validate, Joi } from "../middleware";
 import { throwError } from "../../infra/error-handler";

@@ -1,8 +1,4 @@
-// The gate's per-group state: a standalone, reusable membership set. All non-secret.
-// A group has NO acceptedRoots and NO epoch (groups-semaphore §3 decision #3): group
-// revoke = pull the member's commitment + binding, the computed root changes, stale
-// proofs 409. It carries its own anchorRef = the host portal (chainId + portalAddress;
-// fileId is unused/0 — owner-auth reads the PORTAL owner, not a file owner).
+
 import { Schema, model } from "mongoose";
 import type { GateAnchorRef, GateBinding } from "./gate-doc";
 

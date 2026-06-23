@@ -1,6 +1,3 @@
-// The gate datastore connection. Deliberately NOT storage-v2's fail-fast connect:
-// the gate must come up even when Mongo is down (VOPRF stays live; /gate 503s until
-// this succeeds), so the connect is non-fatal and retries forever with capped backoff.
 import mongoose from "mongoose";
 import { GateDoc, GateGroup, GateNonce } from "./models";
 import { logger } from "../../logger";
