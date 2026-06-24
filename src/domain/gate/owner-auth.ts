@@ -6,7 +6,11 @@
 // Capability shape mirrors the client mint: with {scheme:'gate', hierPart:docId},
 // can {namespace:'gate', segments:['ADMIN'|'INVITE']}.
 import * as ucans from "@ucans/ucans";
-import { readOnChainOwnerDid, readOnChainPortalOwnerDid } from "../../infra/chain/portal-reader";
+import {
+  readOnChainOwnerDid,
+  readOnChainPortalOwnerDid,
+  readCollaboratorKeyForAddress,
+} from "../../infra/chain/portal-reader";
 import { throwError } from "../../infra/error-handler";
 import { GateErrorCode } from "../../infra/gate-errors";
 import type { GateAnchorRef } from "../../infra/database/models";
@@ -89,6 +93,69 @@ export const assertIssuerIsOnChainOwner = async (
   if (issuerDid !== ownerDid) {
     throwError({ code: 403, message });
   }
+};
+
+/**
+ * Read the actor's collaborator address from the UCAN facts. The token is signed
+ * by the issuer, so this fact is tamper-bound; the address is then cross-checked
+ * against on-chain collaboratorKeys, so a forged address can only ever be the
+ * caller's own. Returns undefined when absent (old clients → owner-only fallback).
+ */
+const extractActorAddress = (
+  facts: Record<string, unknown>[]
+): string | undefined => {
+  for (const fact of facts) {
+    if (typeof fact.actorAddress === "string" && fact.actorAddress.length > 0) {
+      return fact.actorAddress;
+    }
+  }
+  return undefined;
+};
+
+/** Capability + LIVE on-chain check that the issuer is ANY current portal collaborator. */
+export const assertIssuerIsPortalCollaborator = async (
+  issuerDid: string,
+  anchorRef: GateAnchorRef,
+  actorAddress: string,
+  message: string
+): Promise<void> => {
+  const did = await readCollaboratorKeyForAddress(anchorRef, actorAddress);
+  // Empty (non-collaborator / removed) or mismatched → reject. Owner is a
+  // collaborator too, so this subsumes the old owner check.
+  if (did === "" || did !== issuerDid) {
+    throwError({ code: 403, message });
+  }
+};
+
+/**
+ * Doc-admin authorization broadened to ANY current portal collaborator
+ * (register/share/attach/detach). The actor's collaborator address rides in the
+ * signed UCAN facts; we verify collaboratorKeys(actorAddress) === issuerDid.
+ * Backward-compat: a token with no actor fact falls back to the owner-only check
+ * so pre-rollout clients keep working.
+ */
+export const assertCollaboratorAuthorized = async (
+  token: string,
+  docId: string,
+  anchorRef: GateAnchorRef
+): Promise<string> => {
+  const { issuerDid, facts } = await validateGateUcan(token, docId, "ADMIN");
+  const actorAddress = extractActorAddress(facts);
+  if (!actorAddress) {
+    await assertIssuerIsOnChainOwner(
+      issuerDid,
+      anchorRef,
+      GateErrorCode.NOT_DOC_OWNER
+    );
+    return issuerDid;
+  }
+  await assertIssuerIsPortalCollaborator(
+    issuerDid,
+    anchorRef,
+    actorAddress,
+    GateErrorCode.NOT_DOC_OWNER
+  );
+  return issuerDid;
 };
 
 /**

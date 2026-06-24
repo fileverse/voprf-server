@@ -103,3 +103,25 @@ export const readOnChainPortalOwnerDid = async (anchorRef: GateAnchorRef): Promi
   });
   return ownerDid;
 };
+
+// Per-address collaborator DID. Non-empty ONLY for a CURRENT collaborator:
+// registerCollaboratorKeys is onlyCollaborator and removeCollaborator clears the
+// key (App.sol:529-531), so a removed collaborator returns "". Read live every
+// call (never cached) so add/remove is followed immediately.
+export const readCollaboratorKeyForAddress = async (
+  anchorRef: GateAnchorRef,
+  address: string
+): Promise<string> => {
+  if (anchorRef.chainId !== configuredChainId) {
+    throwError({ code: 400, message: GateErrorCode.CHAIN_ID_MISMATCH });
+  }
+  const publicClient = getPublicClient();
+  const portal = getAddress(anchorRef.portalAddress);
+  const did = await publicClient.readContract({
+    address: portal,
+    abi: COLLABORATOR_KEYS_ABI,
+    functionName: "collaboratorKeys",
+    args: [getAddress(address)],
+  });
+  return did;
+};

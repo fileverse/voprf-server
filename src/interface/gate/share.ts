@@ -5,7 +5,7 @@ import { validate, Joi } from "../middleware";
 import { throwError } from "../../infra/error-handler";
 import { GateErrorCode } from "../../infra/gate-errors";
 import { getGateMasterKey } from "../../infra/gate-keys";
-import { assertOwnerAuthorized, deriveGateShare, getGateDoc } from "../../domain/gate";
+import { assertCollaboratorAuthorized, deriveGateShare, getGateDoc } from "../../domain/gate";
 import { docIdField } from "./validation";
 
 const shareValidation = {
@@ -29,7 +29,7 @@ async function shareGateShare(req: Request, res: Response): Promise<void> {
   const doc = await getGateDoc(docId);
   if (!doc) return throwError({ code: 404, message: GateErrorCode.DOC_NOT_REGISTERED });
 
-  await assertOwnerAuthorized(ownerUcan, docId, doc.anchorRef);
+  await assertCollaboratorAuthorized(ownerUcan, docId, doc.anchorRef);
   res.json({
     shares: {
       view: deriveGateShare(masterKey, doc.anchorRef, epoch, "view"),

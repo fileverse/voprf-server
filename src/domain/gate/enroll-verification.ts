@@ -17,6 +17,7 @@ export interface VoucherClaims {
   salt: string;
   idHash: string;
   role: "view" | "comment";
+  actorAddress?: string;
 }
 
 /** Validate the voucher UCAN (gate/INVITE) and its fct claims (client DocVoucherClaims). */
@@ -42,7 +43,8 @@ export const validateVoucherClaims = async (
   if (role !== "view" && role !== "comment") {
     return throwError({ code: 403, message: GateErrorCode.INVALID_VOUCHER_ROLE });
   }
-  return { issuerDid, claims: { docId, groupRef: docId, salt, idHash, role } };
+  const actorAddress = typeof fact.actorAddress === "string" ? fact.actorAddress : undefined;
+  return { issuerDid, claims: { docId, groupRef: docId, salt, idHash, role, actorAddress } };
 };
 
 /**

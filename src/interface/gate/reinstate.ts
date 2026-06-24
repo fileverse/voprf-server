@@ -3,7 +3,7 @@ import { Request, Response } from "express";
 import { validate, Joi } from "../middleware";
 import { throwError } from "../../infra/error-handler";
 import { GateErrorCode } from "../../infra/gate-errors";
-import { assertOwnerAuthorized, getGateDoc, reinstateGateMember } from "../../domain/gate";
+import { assertCollaboratorAuthorized, getGateDoc, reinstateGateMember } from "../../domain/gate";
 import { docIdField } from "./validation";
 
 const reinstateValidation = {
@@ -24,7 +24,7 @@ async function reinstateMember(req: Request, res: Response): Promise<void> {
   const doc = await getGateDoc(docId);
   if (!doc) return throwError({ code: 404, message: GateErrorCode.DOC_NOT_REGISTERED });
 
-  await assertOwnerAuthorized(ownerUcan, docId, doc.anchorRef);
+  await assertCollaboratorAuthorized(ownerUcan, docId, doc.anchorRef);
 
   const outcome = await reinstateGateMember(docId, idHash);
   if (outcome.kind === "unknown-doc") return throwError({ code: 404, message: GateErrorCode.DOC_NOT_REGISTERED });

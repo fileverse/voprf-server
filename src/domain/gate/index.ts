@@ -41,6 +41,8 @@ export type { AcceptedRootEntry } from "./resolve-roots";
 export {
   validateGateUcan,
   assertOwnerAuthorized,
+  assertCollaboratorAuthorized,
+  assertIssuerIsPortalCollaborator,
   assertIssuerIsOnChainOwner,
   assertIssuerIsOnChainPortalOwner,
   assertGroupOwnerAuthorized,

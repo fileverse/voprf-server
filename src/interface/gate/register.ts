@@ -5,7 +5,7 @@ import { validate, Joi } from "../middleware";
 import { throwError } from "../../infra/error-handler";
 import { GateErrorCode } from "../../infra/gate-errors";
 import { getGateMasterKey } from "../../infra/gate-keys";
-import { assertOwnerAuthorized, getGateGroup, registerGateDoc } from "../../domain/gate";
+import { assertCollaboratorAuthorized, getGateGroup, registerGateDoc } from "../../domain/gate";
 import type { GateAcceptedRoot, GateAnchorRef } from "../../infra/database/models";
 import { docIdField } from "./validation";
 
@@ -74,7 +74,7 @@ async function registerDoc(req: Request, res: Response): Promise<void> {
   };
 
   // Owner-auth against the SUPPLIED anchor (no stored row yet).
-  await assertOwnerAuthorized(ownerUcan, docId, anchor);
+  await assertCollaboratorAuthorized(ownerUcan, docId, anchor);
 
   const outcome = await registerGateDoc(docId, anchor, acceptedRoots);
   if (outcome.kind === "anchor-mismatch") {

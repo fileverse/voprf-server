@@ -7,6 +7,7 @@ import { verifyIdentityToken } from "../../infra/privy";
 import {
   appendEnrollment,
   assertIssuerIsOnChainOwner,
+  assertIssuerIsPortalCollaborator,
   bindsToAttestedIdentifier,
   getGateDoc,
   validateVoucherClaims,
@@ -35,7 +36,11 @@ async function enrollMember(req: Request, res: Response): Promise<void> {
 
   const identifiers = await verifyIdentityToken(privyIdToken);
   const { issuerDid, claims } = await validateVoucherClaims(voucher, docId);
-  await assertIssuerIsOnChainOwner(issuerDid, doc.anchorRef, GateErrorCode.NOT_DOC_OWNER);
+  if (claims.actorAddress) {
+    await assertIssuerIsPortalCollaborator(issuerDid, doc.anchorRef, claims.actorAddress, GateErrorCode.NOT_DOC_OWNER);
+  } else {
+    await assertIssuerIsOnChainOwner(issuerDid, doc.anchorRef, GateErrorCode.NOT_DOC_OWNER);
+  }
   // Empty identifiers naturally fail the BIND → 403.
   if (!bindsToAttestedIdentifier(identifiers, claims.salt, claims.idHash)) {
     return throwError({ code: 403, message: GateErrorCode.BIND_MISMATCH });
