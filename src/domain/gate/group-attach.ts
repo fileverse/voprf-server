@@ -5,7 +5,7 @@ import { GateDoc } from "../../infra/database/models";
 import type { GateAcceptedRoot } from "../../infra/database/models";
 import { getGateDoc } from "./get";
 
-export type AttachOutcome = { kind: "ok" } | { kind: "unknown-doc" } | { kind: "already" } | { kind: "absent" };
+export type AttachOutcome = { kind: "ok" } | { kind: "unknown-doc" } | { kind: "already" } | { kind: "absent" } | { kind: "relabeled" };
 
 export const attachGroupToDoc = async (
   docId: string,
@@ -14,7 +14,18 @@ export const attachGroupToDoc = async (
 ): Promise<AttachOutcome> => {
   const doc = await getGateDoc(docId);
   if (!doc) return { kind: "unknown-doc" };
-  if (doc.acceptedRoots.some((r) => r.groupRef === groupRef)) return { kind: "already" };
+  // acceptedRoots is a routing table resolve-roots reads fresh per /release, so an
+  // already-attached group at a DIFFERENT role must be relabeled in place — a no-op
+  // here would silently strand the role change and the member's capability never moves.
+  const existing = doc.acceptedRoots.find((r) => r.groupRef === groupRef);
+  if (existing) {
+    if (existing.role === role) return { kind: "already" };
+    await GateDoc.updateOne(
+      { docId, "acceptedRoots.groupRef": groupRef },
+      { $set: { "acceptedRoots.$.role": role } }
+    );
+    return { kind: "relabeled" };
+  }
   await GateDoc.updateOne({ docId }, { $push: { acceptedRoots: { groupRef, role } } });
   return { kind: "ok" };
 };
