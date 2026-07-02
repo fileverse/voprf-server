@@ -8,6 +8,8 @@ export { revokeGateMember } from "./revoke";
 export type { RevokeOutcome } from "./revoke";
 export { reinstateGateMember } from "./reinstate";
 export type { ReinstateOutcome } from "./reinstate";
+export { relabelMemberRole } from "./relabel";
+export type { RelabelOutcome } from "./relabel";
 export { computeGroupRoot } from "./group";
 export { createGateNonce, listLiveNonces, consumeGateNonce } from "./nonce";
 export { deriveGateShare } from "./share-derivation";
