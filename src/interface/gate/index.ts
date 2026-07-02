@@ -12,6 +12,7 @@ import challenge from "./challenge";
 import release from "./release";
 import revoke from "./revoke";
 import reinstate from "./reinstate";
+import relabel from "./relabel";
 import groupRegister from "./group-register";
 import groupGet from "./group-get";
 import groupEnroll from "./group-enroll";
@@ -31,6 +32,7 @@ gateRouter.post("/challenge", asyncHandlerArray(challenge));
 gateRouter.post("/release", asyncHandlerArray(release));
 gateRouter.post("/revoke", asyncHandlerArray(revoke));
 gateRouter.post("/reinstate", asyncHandlerArray(reinstate));
+gateRouter.post("/relabel", asyncHandlerArray(relabel));
 
 // Standalone reusable groups (groups-semaphore Phase 1).
 gateRouter.post("/group/register", asyncHandlerArray(groupRegister));
