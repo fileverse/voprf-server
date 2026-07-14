@@ -36,11 +36,12 @@ export const resolveAcceptedRoots = async (
     if (root !== "0") entries.push({ root, role });
   }
   // Dedupe by root. If two entries share a root (degenerate: identical member sets),
-  // keep the HIGHER role (comment ⊇ view) so a match is never under-privileged.
+  // keep the HIGHER role (edit ⊇ comment ⊇ view) so a match is never under-privileged.
+  const ROLE_RANK: Record<GateRole, number> = { view: 1, comment: 2, edit: 3 };
   const byRoot = new Map<string, GateRole>();
   for (const { root, role } of entries) {
     const prev = byRoot.get(root);
-    if (!prev || (prev === "view" && role === "comment")) byRoot.set(root, role);
+    if (!prev || ROLE_RANK[role] > ROLE_RANK[prev]) byRoot.set(root, role);
   }
   return [...byRoot.entries()].map(([root, role]) => ({ root, role }));
 };

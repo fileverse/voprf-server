@@ -23,9 +23,9 @@ const portalAddressBytes = (portalAddress: string): Buffer => {
   return Buffer.from(hex, "hex");
 };
 
-export type GateRole = "view" | "comment";
+export type GateRole = "view" | "comment" | "edit";
 
-const ROLE_BYTE: Record<GateRole, number> = { view: 0x01, comment: 0x02 };
+const ROLE_BYTE: Record<GateRole, number> = { view: 0x01, comment: 0x02, edit: 0x03 };
 
 // Fixed-width fields after the NUL-terminated tag make the encoding injective: no
 // two distinct (chainId, portal, fileId, epoch, role) tuples collide on the PRF input.

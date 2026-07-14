@@ -4,7 +4,7 @@ import { Request, Response } from "express";
 import { validate, Joi } from "../middleware";
 import { throwError } from "../../infra/error-handler";
 import { GateErrorCode } from "../../infra/gate-errors";
-import { assertCollaboratorAuthorized, getGateDoc, revokeGateMember } from "../../domain/gate";
+import { assertCollaboratorAuthorized, bumpEditGrantEpoch, getGateDoc, revokeGateMember } from "../../domain/gate";
 import { docIdField } from "./validation";
 
 const revokeValidation = {
@@ -39,6 +39,9 @@ async function revokeMember(req: Request, res: Response): Promise<void> {
       message: GateErrorCode.STALE_EPOCH,
     });
   }
+  // Revoke already advances currentEpoch above; this is the independent edit-admission
+  // bump, applied only when the removed member was an editor (no churn on view/comment).
+  if (outcome.kind === "ok" && outcome.wasEdit) await bumpEditGrantEpoch(docId);
   res.status(204).end();
 }
 

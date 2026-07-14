@@ -25,7 +25,7 @@ const registerValidation = {
       .items(
         Joi.object({
           groupRef: Joi.string().required(),
-          role: Joi.string().valid("view", "comment").required(),
+          role: Joi.string().valid("view", "comment", "edit").required(),
         })
       )
       .min(1)

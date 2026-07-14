@@ -3,7 +3,15 @@
 import { GateDoc } from "../../infra/database/models";
 import { getGateDoc } from "./get";
 
-export type EnrollOutcome = "added" | "noop" | "relabeled" | "pin-conflict" | "unknown-doc" | "revoked";
+export type EnrollOutcome =
+  | "added"
+  | "noop"
+  | "relabeled"
+  | "relabeled-off-edit"
+  | "pin-conflict"
+  | "unknown-doc"
+  | "revoked"
+  | "edit-denied";
 
 /**
  * PIN+ADD. The update filter excludes docs already binding this idHash (and already
@@ -20,6 +28,9 @@ export const appendEnrollment = async (
     const doc = await getGateDoc(docId);
     if (!doc) return "unknown-doc";
     if ((doc.revokedIdHashes ?? []).includes(idHash)) return "revoked";
+    // A demoted member's stale edit voucher must not relabel them back into the edit set.
+    // Only 'edit' is blocked — they keep comment/view. Lifted by a promote-to-edit.
+    if (role === "edit" && (doc.editDeniedIdHashes ?? []).includes(idHash)) return "edit-denied";
     const bound = doc.bindings.find((b) => b.idHash === idHash);
     if (bound) {
       if (bound.commitment !== commitment) return "pin-conflict";
@@ -28,11 +39,19 @@ export const appendEnrollment = async (
       // moving the member between the view/comment role-filtered sets (no member churn,
       // commitment unchanged). $elemMatch pins the exact (idHash, commitment) binding.
       const relabel = await GateDoc.updateOne(
-        { docId, bindings: { $elemMatch: { idHash, commitment } } },
+        {
+          docId,
+          bindings: { $elemMatch: { idHash, commitment } },
+          // Race guard: a demote that adds the denial after the read above must not let
+          // this edit relabel-up land. On miss the loop re-reads → returns "edit-denied".
+          ...(role === "edit" ? { editDeniedIdHashes: { $ne: idHash } } : {}),
+        },
         { $set: { "bindings.$.role": role } },
         { runValidators: true }
       );
-      if (relabel.modifiedCount === 1) return "relabeled";
+      if (relabel.modifiedCount === 1) {
+        return bound.role === "edit" && role !== "edit" ? "relabeled-off-edit" : "relabeled";
+      }
       continue; // raced with a concurrent mutation — re-read
     }
 
@@ -44,6 +63,7 @@ export const appendEnrollment = async (
       docId,
       "bindings.idHash": { $ne: idHash },
       revokedIdHashes: { $ne: idHash },
+      ...(role === "edit" ? { editDeniedIdHashes: { $ne: idHash } } : {}),
       ...(memberAlready ? { members: commitment } : { members: { $ne: commitment } }),
     };
     const update = memberAlready

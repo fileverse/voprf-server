@@ -9,7 +9,7 @@ import { GateErrorCode } from "../../infra/gate-errors";
 const membersForRole = (
   members: string[],
   bindings: { commitment: string; role: string }[],
-  role: "view" | "comment"
+  role: "view" | "comment" | "edit"
 ): string[] =>
   members.filter((c) => bindings.some((b) => b.commitment === c && b.role === role));
 
@@ -18,9 +18,11 @@ async function getGroup(req: Request, res: Response): Promise<void> {
   if (!doc) return throwError({ code: 404, message: GateErrorCode.DOC_NOT_REGISTERED });
   const view = membersForRole(doc.members, doc.bindings, "view");
   const comment = membersForRole(doc.members, doc.bindings, "comment");
+  const edit = membersForRole(doc.members, doc.bindings, "edit");
   res.json({
     view: { root: computeGroupRoot(view), members: view },
     comment: { root: computeGroupRoot(comment), members: comment },
+    edit: { root: computeGroupRoot(edit), members: edit },
   });
 }
 
