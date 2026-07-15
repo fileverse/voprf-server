@@ -8,6 +8,7 @@ import {
   attachGroupToDoc,
   bumpEditGrantEpoch,
   detachGroupFromDoc,
+  deriveEditHandle,
   getGateDoc,
   getGateGroup,
 } from "../../domain/gate";
@@ -83,7 +84,9 @@ async function detachGroup(req: Request, res: Response): Promise<void> {
   const outcome = await detachGroupFromDoc(docId, groupRef);
   if (outcome.kind === "unknown-doc") return throwError({ code: 404, message: GateErrorCode.DOC_NOT_REGISTERED });
   if (detachedRole === "edit") await bumpEditGrantEpoch(docId);
-  res.status(204).end();
+  const group = detachedRole === "edit" ? await getGateGroup(groupRef) : null;
+  const evictedHandles = group ? group.members.map((c) => deriveEditHandle(c, docId)) : [];
+  res.json({ evictedHandles });
 }
 
 // convert:false: uniform with the other gate schemas. docId arrives as a path param

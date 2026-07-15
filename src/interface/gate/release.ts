@@ -16,25 +16,39 @@ import {
   assertRootInSet,
   consumeGateNonce,
   deriveGateShare,
+  deriveEditHandle,
   getGateDoc,
+  isEditMember,
   listLiveNonces,
   matchNonceByEncodedMessage,
   parseProofShape,
   resolveAcceptedRoots,
+  verifyEditSignatureAndDeriveCommitment,
 } from "../../domain/gate";
+import type { EddsaSignature } from "../../domain/gate";
 import { docIdField } from "./validation";
 
 const releaseValidation = {
   body: Joi.object({
     docId: docIdField(),
     proof: Joi.any(),
+    // Optional signature-identified edit path — additive alongside `proof`.
+    nonce: Joi.string(),
+    publicKey: Joi.array().items(Joi.string()).length(2),
+    signature: Joi.object({
+      R8: Joi.array().items(Joi.string()).length(2).required(),
+      S: Joi.string().required(),
+    }),
   }),
 };
 
 async function releaseGateShare(req: Request, res: Response): Promise<void> {
-  const { docId, proof } = req.body as {
+  const { docId, proof, nonce, publicKey, signature } = req.body as {
     docId: string;
     proof: unknown;
+    nonce?: string;
+    publicKey?: [string, string];
+    signature?: EddsaSignature;
   };
 
   const masterKey = getGateMasterKey();
@@ -42,6 +56,49 @@ async function releaseGateShare(req: Request, res: Response): Promise<void> {
 
   const doc = await getGateDoc(docId);
   if (!doc) return throwError({ code: 404, message: GateErrorCode.DOC_NOT_REGISTERED });
+
+  // Signature-identified edit path: commitment-identified, no Semaphore proof.
+  if (signature && publicKey && nonce) {
+    const liveNonces = await listLiveNonces(docId);
+    if (!liveNonces.includes(nonce) || !(await consumeGateNonce(docId, nonce))) {
+      return throwError({ code: 403, message: GateErrorCode.NONCE_NOT_LIVE });
+    }
+    const commitment = verifyEditSignatureAndDeriveCommitment(docId, nonce, publicKey, signature);
+    if (!commitment) return throwError({ code: 403, message: GateErrorCode.INVALID_PROOF });
+    if (!(await isEditMember(doc, commitment))) {
+      return throwError({ code: 403, message: GateErrorCode.INVALID_PROOF });
+    }
+
+    const shares = {
+      view: deriveGateShare(masterKey, doc.anchorRef, doc.currentEpoch, "view"),
+      comment: deriveGateShare(masterKey, doc.anchorRef, doc.currentEpoch, "comment"),
+      edit: deriveGateShare(masterKey, doc.anchorRef, doc.currentEpoch, "edit"),
+    };
+    const editHandle = deriveEditHandle(commitment, docId);
+
+    // Mirrors the legacy edit UCAN mint below: same graceful degrade, same 7-day lifetime.
+    let editUcan: string | undefined;
+    const keypair = getGateSigningKeypair();
+    const audience = config.COLLAB_SERVER_DID;
+    if (keypair && audience) {
+      const built = await ucans.build({
+        issuer: keypair,
+        audience,
+        capabilities: [
+          {
+            with: { scheme: "collab", hierPart: docId },
+            can: { namespace: "collab", segments: ["EDIT"] },
+          },
+        ],
+        facts: [{ docId, editHandle }],
+        lifetimeInSeconds: 60 * 60 * 24 * 7,
+      });
+      editUcan = ucans.encode(built);
+    }
+
+    res.json({ shares, ...(editUcan ? { editUcan, editHandle } : {}) });
+    return;
+  }
 
   const shape = parseProofShape(proof);
   assertProofScope(shape, docId);

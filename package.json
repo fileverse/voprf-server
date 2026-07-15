@@ -8,6 +8,7 @@
     "start": "NODE_ENV=production node dist/index.js",
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "clean": "rm -rf dist",
+    "test": "vitest run",
     "postinstall": "npm run build"
   },
   "keywords": [
@@ -23,6 +24,7 @@
     "@cloudflare/voprf-ts": "^1.0.0",
     "@privy-io/node": "^0.21.0",
     "@semaphore-protocol/group": "^4.13.1",
+    "@semaphore-protocol/identity": "^4.13.1",
     "@semaphore-protocol/proof": "^4.13.1",
     "@ucans/ucans": "^0.12.0",
     "bunyan": "^1.8.15",
@@ -35,6 +37,7 @@
     "js-base64": "^3.7.7",
     "mongoose": "^6.5.4",
     "morgan": "^1.10.0",
+    "poseidon-lite": "^0.3.0",
     "ts-node-dev": "^2.0.0",
     "viem": "^2.52.2"
   },
@@ -49,7 +52,8 @@
     "@types/uuid": "^10.0.0",
     "nodemon": "^2.0.22",
     "ts-node": "^10.9.2",
-    "typescript": "^5.0.4"
+    "typescript": "^5.0.4",
+    "vitest": "^3.2.7"
   },
   "engines": {
     "node": ">=18.0.0",

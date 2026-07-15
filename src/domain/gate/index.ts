@@ -54,3 +54,5 @@ export {
 export type { GateAbilitySegment, ValidatedGateUcan } from "./owner-auth";
 export { validateVoucherClaims, validateGroupVoucherClaims, bindsToAttestedIdentifier } from "./enroll-verification";
 export type { VoucherClaims } from "./enroll-verification";
+export { deriveEditHandle, verifyEditSignatureAndDeriveCommitment } from "./edit-signature";
+export type { EddsaSignature } from "./edit-signature";

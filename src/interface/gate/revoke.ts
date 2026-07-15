@@ -4,7 +4,13 @@ import { Request, Response } from "express";
 import { validate, Joi } from "../middleware";
 import { throwError } from "../../infra/error-handler";
 import { GateErrorCode } from "../../infra/gate-errors";
-import { assertCollaboratorAuthorized, bumpEditGrantEpoch, getGateDoc, revokeGateMember } from "../../domain/gate";
+import {
+  assertCollaboratorAuthorized,
+  bumpEditGrantEpoch,
+  deriveEditHandle,
+  getGateDoc,
+  revokeGateMember,
+} from "../../domain/gate";
 import { docIdField } from "./validation";
 
 const revokeValidation = {
@@ -42,7 +48,9 @@ async function revokeMember(req: Request, res: Response): Promise<void> {
   // Revoke already advances currentEpoch above; this is the independent edit-admission
   // bump, applied only when the removed member was an editor (no churn on view/comment).
   if (outcome.kind === "ok" && outcome.wasEdit) await bumpEditGrantEpoch(docId);
-  res.status(204).end();
+  const evictedHandles =
+    outcome.kind === "ok" && outcome.wasEdit && outcome.commitment ? [deriveEditHandle(outcome.commitment, docId)] : [];
+  res.json({ evictedHandles });
 }
 
 // convert:false: epoch must arrive as a JSON number.

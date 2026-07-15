@@ -2,6 +2,7 @@
 // edit ⊇ comment ⊇ view — a member's effective role is the MAX over their bindings.
 import type { GateDocRecord } from "../../infra/database/models";
 import type { GateRole } from "./share-derivation";
+import { getGateGroup } from "./group-get";
 
 export const ROLE_RANK: Record<GateRole, number> = { view: 1, comment: 2, edit: 3 };
 
@@ -30,3 +31,20 @@ export const maxRoleForCommitment = (
 /** Self-enroll cap: a new binding may not exceed the commitment's current max role. */
 export const capRole = (voucherRole: GateRole, maxRole: GateRole | null): GateRole =>
   maxRole === null || ROLE_RANK[voucherRole] <= ROLE_RANK[maxRole] ? voucherRole : maxRole;
+
+/** Positive-state edit union: direct doc bindings@edit ∪ members of any edit-attached group,
+ * deduped. Single source of truth — mint-time (isEditMember) and poll-time (edit-bound
+ * endpoint) membership checks MUST agree, so both derive from this. */
+export const editMemberCommitments = async (doc: GateDocRecord): Promise<string[]> => {
+  const union = new Set(membersForRole(doc, "edit"));
+  for (const { groupRef, role } of doc.acceptedRoots) {
+    if (role !== "edit" || groupRef === doc.docId) continue;
+    const group = await getGateGroup(groupRef);
+    group?.members.forEach((c) => union.add(c));
+  }
+  return [...union];
+};
+
+/** Positive-state edit membership: direct doc bindings@edit ∪ members of any edit-attached group. */
+export const isEditMember = async (doc: GateDocRecord, commitment: string): Promise<boolean> =>
+  (await editMemberCommitments(doc)).includes(commitment);

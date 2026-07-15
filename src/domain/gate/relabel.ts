@@ -7,7 +7,9 @@
 import { GateDoc } from "../../infra/database/models";
 import { getGateDoc } from "./get";
 
-export type RelabelOutcome = { kind: "ok"; wasEdit: boolean } | { kind: "unknown-doc" };
+export type RelabelOutcome =
+  | { kind: "ok"; wasEdit: boolean; commitment?: string }
+  | { kind: "unknown-doc" };
 
 export const relabelMemberRole = async (
   docId: string,
@@ -28,7 +30,7 @@ export const relabelMemberRole = async (
     { $set: { "bindings.$[elem].role": newRole } },
     { arrayFilters: [{ "elem.commitment": binding.commitment }] }
   );
-  return { kind: "ok", wasEdit };
+  return { kind: "ok", wasEdit, commitment: binding.commitment };
 };
 
 export type RelabelBulkOutcome = { kind: "ok" } | { kind: "unknown-doc" };

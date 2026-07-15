@@ -31,7 +31,8 @@ async function relabelMembersBulk(req: Request, res: Response): Promise<void> {
 
   const outcome = await relabelMembersRole(docId, idHashes, newRole);
   if (outcome.kind === "unknown-doc") return throwError({ code: 404, message: GateErrorCode.DOC_NOT_REGISTERED });
-  res.status(204).end();
+  // changeTier never demotes off edit (Change #1) — no eviction, but a uniform response shape.
+  res.json({ evictedHandles: [] });
 }
 
 export default [validate(relabelBulkValidation, {}, { convert: false }), relabelMembersBulk];

@@ -5,7 +5,13 @@ import { Request, Response } from "express";
 import { validate, Joi } from "../middleware";
 import { throwError } from "../../infra/error-handler";
 import { GateErrorCode } from "../../infra/gate-errors";
-import { assertCollaboratorAuthorized, bumpEditGrantEpoch, getGateDoc, relabelMemberRole } from "../../domain/gate";
+import {
+  assertCollaboratorAuthorized,
+  bumpEditGrantEpoch,
+  deriveEditHandle,
+  getGateDoc,
+  relabelMemberRole,
+} from "../../domain/gate";
 import { docIdField } from "./validation";
 
 const relabelValidation = {
@@ -36,7 +42,9 @@ async function relabelMember(req: Request, res: Response): Promise<void> {
   if (outcome.wasEdit && newRole !== "edit") {
     await bumpEditGrantEpoch(docId);
   }
-  res.status(204).end();
+  const evictedHandles =
+    outcome.wasEdit && newRole !== "edit" && outcome.commitment ? [deriveEditHandle(outcome.commitment, docId)] : [];
+  res.json({ evictedHandles });
 }
 
 export default [validate(relabelValidation, {}, { convert: false }), relabelMember];
