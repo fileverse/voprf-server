@@ -5,7 +5,7 @@ import { Request, Response } from "express";
 import { validate, Joi } from "../middleware";
 import { throwError } from "../../infra/error-handler";
 import { GateErrorCode } from "../../infra/gate-errors";
-import { addEditDenied, assertCollaboratorAuthorized, bumpEditGrantEpoch, getGateDoc, relabelMemberRole, removeEditDenied } from "../../domain/gate";
+import { assertCollaboratorAuthorized, bumpEditGrantEpoch, getGateDoc, relabelMemberRole } from "../../domain/gate";
 import { docIdField } from "./validation";
 
 const relabelValidation = {
@@ -35,12 +35,7 @@ async function relabelMember(req: Request, res: Response): Promise<void> {
   // Demote off edit drops write without re-keying; raising to edit revokes nothing.
   if (outcome.wasEdit && newRole !== "edit") {
     await bumpEditGrantEpoch(docId);
-    // Durably block the member's stale edit voucher from re-enrolling back into edit.
-    await addEditDenied(docId, idHash);
   }
-  // Promote to edit is the owner's explicit re-grant — lift any prior edit-denial so the
-  // member's next edit enroll is admitted. Idempotent when none is set.
-  if (newRole === "edit") await removeEditDenied(docId, idHash);
   res.status(204).end();
 }
 

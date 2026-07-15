@@ -32,10 +32,6 @@ export interface GateDocRecord {
   bindings: GateBinding[];
   /** idHashes evicted by /revoke; refused at /enroll until /reinstate lifts them. */
   revokedIdHashes: string[];
-  /** idHashes demoted OFF edit; refused an 'edit' /enroll (so a live editor's stale edit
-   *  voucher can't self-promote back into the edit set) until a promote-to-edit lifts them.
-   *  Distinct from revokedIdHashes: a demoted member keeps comment/view access. */
-  editDeniedIdHashes: string[];
 }
 
 const AnchorRefSchema = new Schema<GateAnchorRef>(
@@ -66,7 +62,6 @@ const GateDocSchema = new Schema<GateDocRecord>(
       },
     ],
     revokedIdHashes: { type: [String], default: [] },
-    editDeniedIdHashes: { type: [String], default: [] },
   },
   { collection: "gate_docs", minimize: false }
 );

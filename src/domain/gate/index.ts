@@ -8,10 +8,9 @@ export { revokeGateMember } from "./revoke";
 export type { RevokeOutcome } from "./revoke";
 export { reinstateGateMember } from "./reinstate";
 export type { ReinstateOutcome } from "./reinstate";
-export { relabelMemberRole } from "./relabel";
-export type { RelabelOutcome } from "./relabel";
+export { relabelMemberRole, relabelMembersRole } from "./relabel";
+export type { RelabelOutcome, RelabelBulkOutcome } from "./relabel";
 export { bumpEditGrantEpoch, bumpEditGrantEpochForGroupAtEdit, getEditGrantEpoch } from "./edit-grant-epoch";
-export { addEditDenied, removeEditDenied } from "./edit-denied";
 export { computeGroupRoot } from "./group";
 export { createGateNonce, listLiveNonces, consumeGateNonce } from "./nonce";
 export { deriveGateShare } from "./share-derivation";
@@ -42,6 +41,7 @@ export { attachGroupToDoc, detachGroupFromDoc } from "./group-attach";
 export type { AttachOutcome } from "./group-attach";
 export { resolveAcceptedRoots } from "./resolve-roots";
 export type { AcceptedRootEntry } from "./resolve-roots";
+export * from "./roles";
 export {
   validateGateUcan,
   assertOwnerAuthorized,

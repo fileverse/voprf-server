@@ -9,7 +9,6 @@ import {
   assertIssuerIsOnChainOwner,
   assertIssuerIsPortalCollaborator,
   bindsToAttestedIdentifier,
-  bumpEditGrantEpoch,
   getGateDoc,
   validateVoucherClaims,
 } from "../../domain/gate";
@@ -52,16 +51,9 @@ async function enrollMember(req: Request, res: Response): Promise<void> {
   if (outcome === "revoked") {
     return throwError({ code: 403, message: GateErrorCode.IDENTITY_REVOKED });
   }
-  if (outcome === "edit-denied") {
-    return throwError({ code: 403, message: GateErrorCode.EDIT_DENIED });
-  }
   if (outcome === "pin-conflict") {
-    return throwError({
-      code: 409,
-      message: GateErrorCode.COMMITMENT_PINNED,
-    });
+    return throwError({ code: 409, message: GateErrorCode.COMMITMENT_PINNED });
   }
-  if (outcome === "relabeled-off-edit") await bumpEditGrantEpoch(docId);
   res.status(204).end();
 }
 

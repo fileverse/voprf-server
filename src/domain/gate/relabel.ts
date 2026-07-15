@@ -30,3 +30,31 @@ export const relabelMemberRole = async (
   );
   return { kind: "ok", wasEdit };
 };
+
+export type RelabelBulkOutcome = { kind: "ok" } | { kind: "unknown-doc" };
+
+/** Owner bulk relabel (changeTier WIDEN/NARROW): relabel every binding under the
+ *  commitment of each given idHash to newRole. Commitment-scoped, same as the single
+ *  relabel — a member with multiple identifiers moves entirely. */
+export const relabelMembersRole = async (
+  docId: string,
+  idHashes: string[],
+  newRole: string
+): Promise<RelabelBulkOutcome> => {
+  const doc = await getGateDoc(docId);
+  if (!doc) return { kind: "unknown-doc" };
+
+  const commitments = new Set<string>();
+  for (const idHash of idHashes) {
+    const binding = doc.bindings.find((b) => b.idHash === idHash);
+    if (binding) commitments.add(binding.commitment);
+  }
+  if (commitments.size === 0) return { kind: "ok" };
+
+  await GateDoc.updateOne(
+    { docId },
+    { $set: { "bindings.$[elem].role": newRole } },
+    { arrayFilters: [{ "elem.commitment": { $in: [...commitments] } }] }
+  );
+  return { kind: "ok" };
+};
