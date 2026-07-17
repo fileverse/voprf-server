@@ -3,7 +3,7 @@
 // proves per-commitment (resolve-roots membersForRole filters doc.members by commitment),
 // so a lone binding left at the old role keeps the member in that role-filtered set.
 // Same commitment-scoping the revoke $pull uses. No currentEpoch bump — a relabel is not
-// a re-key. wasEdit lets the controller decide whether this demote must bump editGrantEpoch.
+// a re-key. wasEdit tells the controller whether this was a demote off edit.
 import { GateDoc } from "../../infra/database/models";
 import { getGateDoc } from "./get";
 

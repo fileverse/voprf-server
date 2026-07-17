@@ -10,7 +10,6 @@ export { reinstateGateMember } from "./reinstate";
 export type { ReinstateOutcome } from "./reinstate";
 export { relabelMemberRole, relabelMembersRole } from "./relabel";
 export type { RelabelOutcome, RelabelBulkOutcome } from "./relabel";
-export { bumpEditGrantEpoch, bumpEditGrantEpochForGroupAtEdit, getEditGrantEpoch } from "./edit-grant-epoch";
 export { computeGroupRoot } from "./group";
 export { createGateNonce, listLiveNonces, consumeGateNonce } from "./nonce";
 export { deriveGateShare } from "./share-derivation";

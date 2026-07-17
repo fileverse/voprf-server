@@ -9,12 +9,7 @@ import { Request, Response } from "express";
 import { validate, Joi } from "../middleware";
 import { throwError } from "../../infra/error-handler";
 import { GateErrorCode } from "../../infra/gate-errors";
-import {
-  assertGroupOwnerAuthorized,
-  bumpEditGrantEpochForGroupAtEdit,
-  deleteGateGroup,
-  getGateGroup,
-} from "../../domain/gate";
+import { assertGroupOwnerAuthorized, deleteGateGroup, getGateGroup } from "../../domain/gate";
 
 const groupDeleteValidation = {
   body: Joi.object({
@@ -35,8 +30,6 @@ async function deleteGroup(req: Request, res: Response): Promise<void> {
   await assertGroupOwnerAuthorized(ownerUcan, groupRef, group.anchorRef);
 
   await deleteGateGroup(groupRef);
-  // Deleting the group revokes it everywhere; drop editors on every doc it fed at edit.
-  await bumpEditGrantEpochForGroupAtEdit(groupRef);
   res.status(204).end();
 }
 

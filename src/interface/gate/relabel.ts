@@ -1,13 +1,11 @@
 // POST /gate/relabel — owner-asserted single-member role change (view/comment/edit).
-// A doc-op: same collaborator auth as revoke/reinstate. Bumps editGrantEpoch on
-// demote-off-edit (never currentEpoch); no denylist.
+// A doc-op: same collaborator auth as revoke/reinstate. No denylist.
 import { Request, Response } from "express";
 import { validate, Joi } from "../middleware";
 import { throwError } from "../../infra/error-handler";
 import { GateErrorCode } from "../../infra/gate-errors";
 import {
   assertCollaboratorAuthorized,
-  bumpEditGrantEpoch,
   deriveEditHandle,
   getGateDoc,
   relabelMemberRole,
@@ -38,10 +36,6 @@ async function relabelMember(req: Request, res: Response): Promise<void> {
 
   const outcome = await relabelMemberRole(docId, idHash, newRole);
   if (outcome.kind === "unknown-doc") return throwError({ code: 404, message: GateErrorCode.DOC_NOT_REGISTERED });
-  // Demote off edit drops write without re-keying; raising to edit revokes nothing.
-  if (outcome.wasEdit && newRole !== "edit") {
-    await bumpEditGrantEpoch(docId);
-  }
   const evictedHandles =
     outcome.wasEdit && newRole !== "edit" && outcome.commitment ? [deriveEditHandle(outcome.commitment, docId)] : [];
   res.json({ evictedHandles });

@@ -24,9 +24,6 @@ export interface GateDocRecord {
   anchorRef: GateAnchorRef;
   acceptedRoots: GateAcceptedRoot[];
   currentEpoch: number;
-  /** Edit-admission kill-switch, DISTINCT from currentEpoch (fileKey re-key). Bumps on
-   *  every edit-affecting op (demote-off-edit, revoke, group edit-ops); never re-keys. */
-  editGrantEpoch: number;
   /** decimal commitment strings, APPEND ORDER (clients rebuild the LeanIMT from this) */
   members: string[];
   bindings: GateBinding[];
@@ -51,7 +48,6 @@ const GateDocSchema = new Schema<GateDocRecord>(
       { groupRef: { type: String, required: true }, role: { type: String, required: true }, _id: false },
     ],
     currentEpoch: { type: Number, required: true, default: 0 },
-    editGrantEpoch: { type: Number, required: true, default: 0 },
     members: { type: [{ type: String, match: /^\d+$/ }], default: [] },
     bindings: [
       {

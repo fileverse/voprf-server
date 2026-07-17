@@ -6,7 +6,6 @@ import { throwError } from "../../infra/error-handler";
 import { GateErrorCode } from "../../infra/gate-errors";
 import {
   assertCollaboratorAuthorized,
-  bumpEditGrantEpoch,
   deriveEditHandle,
   getGateDoc,
   revokeGateMember,
@@ -45,9 +44,6 @@ async function revokeMember(req: Request, res: Response): Promise<void> {
       message: GateErrorCode.STALE_EPOCH,
     });
   }
-  // Revoke already advances currentEpoch above; this is the independent edit-admission
-  // bump, applied only when the removed member was an editor (no churn on view/comment).
-  if (outcome.kind === "ok" && outcome.wasEdit) await bumpEditGrantEpoch(docId);
   const evictedHandles =
     outcome.kind === "ok" && outcome.wasEdit && outcome.commitment ? [deriveEditHandle(outcome.commitment, docId)] : [];
   res.json({ evictedHandles });

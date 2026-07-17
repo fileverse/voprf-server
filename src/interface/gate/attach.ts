@@ -6,7 +6,6 @@ import { GateErrorCode } from "../../infra/gate-errors";
 import {
   assertCollaboratorAuthorized,
   attachGroupToDoc,
-  bumpEditGrantEpoch,
   detachGroupFromDoc,
   deriveEditHandle,
   getGateDoc,
@@ -48,14 +47,8 @@ async function attachGroup(req: Request, res: Response): Promise<void> {
     return throwError({ code: 403, message: GateErrorCode.CROSS_PORTAL_ATTACH });
   }
 
-  // Read the pre-mutation role from the doc already in scope to detect a demote-off-edit
-  // on re-attach (attachGroupToDoc relabels an existing accepted-root in place).
-  const previousRole = doc.acceptedRoots.find((r) => r.groupRef === groupRef)?.role;
-
   const outcome = await attachGroupToDoc(docId, groupRef, role);
   if (outcome.kind === "unknown-doc") return throwError({ code: 404, message: GateErrorCode.DOC_NOT_REGISTERED });
-  // A raise TO edit adds an editor and invalidates no existing claim, so no bump there.
-  if (previousRole === "edit" && role !== "edit") await bumpEditGrantEpoch(docId);
   res.status(204).end();
 }
 
@@ -83,7 +76,6 @@ async function detachGroup(req: Request, res: Response): Promise<void> {
 
   const outcome = await detachGroupFromDoc(docId, groupRef);
   if (outcome.kind === "unknown-doc") return throwError({ code: 404, message: GateErrorCode.DOC_NOT_REGISTERED });
-  if (detachedRole === "edit") await bumpEditGrantEpoch(docId);
   const group = detachedRole === "edit" ? await getGateGroup(groupRef) : null;
   const evictedHandles = group ? group.members.map((c) => deriveEditHandle(c, docId)) : [];
   res.json({ evictedHandles });

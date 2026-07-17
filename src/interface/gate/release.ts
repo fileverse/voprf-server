@@ -76,7 +76,6 @@ async function releaseGateShare(req: Request, res: Response): Promise<void> {
     };
     const editHandle = deriveEditHandle(commitment, docId);
 
-    // Mirrors the legacy edit UCAN mint below: same graceful degrade, same 7-day lifetime.
     let editUcan: string | undefined;
     const keypair = getGateSigningKeypair();
     const audience = config.COLLAB_SERVER_DID;
@@ -120,10 +119,6 @@ async function releaseGateShare(req: Request, res: Response): Promise<void> {
   const matchedEntry = acceptedEntries.find((e) => e.root === shape.merkleTreeRoot);
   if (!matchedEntry) return throwError({ code: 409, message: GateErrorCode.STALE_GROUP_ROOT });
 
-  // .lean() skips the schema default, so pre-existing docs can read back as undefined —
-  // coalesce once here so it's never undefined in the UCAN fact or the response.
-  const editGrantEpoch = doc.editGrantEpoch ?? 0;
-
   // Bundle by hierarchy (edit ⊇ comment ⊇ view), derived at the gate's OWN currentEpoch.
   const shares: { view: string; comment?: string; edit?: string } = {
     view: deriveGateShare(masterKey, doc.anchorRef, doc.currentEpoch, "view"),
@@ -132,33 +127,14 @@ async function releaseGateShare(req: Request, res: Response): Promise<void> {
     shares.comment = deriveGateShare(masterKey, doc.anchorRef, doc.currentEpoch, "comment");
   }
 
-  // Edit match: also derive the edit share and mint the edit-admission UCAN. The UCAN is
-  // the collab-server's write-admission proof; it carries ONLY (docId, editGrantEpoch, nullifier)
-  // — never an idHash/commitment — so the gate's zero-knowledge property is preserved. A
-  // missing signing key or collab DID degrades gracefully (share still returned, UCAN absent).
-  let editUcan: string | undefined;
+  // Edit match: derive the edit share (roomKey unwrap). No admission UCAN on the anonymous
+  // path — collab write admission requires the signature-identified /release, which mints
+  // the per-actor editHandle UCAN.
   if (matchedEntry.role === "edit") {
     shares.edit = deriveGateShare(masterKey, doc.anchorRef, doc.currentEpoch, "edit");
-    const keypair = getGateSigningKeypair();
-    const audience = config.COLLAB_SERVER_DID;
-    if (keypair && audience) {
-      const built = await ucans.build({
-        issuer: keypair,
-        audience,
-        capabilities: [
-          {
-            with: { scheme: "collab", hierPart: docId },
-            can: { namespace: "collab", segments: ["EDIT"] },
-          },
-        ],
-        facts: [{ docId, editGrantEpoch, nullifier: shape.nullifier }],
-        lifetimeInSeconds: 60 * 60 * 24 * 7, // 7 days; the editGrantEpoch re-check is the real revoke.
-      });
-      editUcan = ucans.encode(built);
-    }
   }
 
-  res.json({ shares, editGrantEpoch, ...(editUcan ? { editUcan } : {}) });
+  res.json({ shares });
 }
 
 // convert:false: uniform with the other gate schemas.

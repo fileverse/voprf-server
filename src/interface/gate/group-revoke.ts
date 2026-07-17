@@ -4,12 +4,7 @@ import { Request, Response } from "express";
 import { validate, Joi } from "../middleware";
 import { throwError } from "../../infra/error-handler";
 import { GateErrorCode } from "../../infra/gate-errors";
-import {
-  assertGroupOwnerAuthorized,
-  bumpEditGrantEpochForGroupAtEdit,
-  getGateGroup,
-  revokeGateGroupMember,
-} from "../../domain/gate";
+import { assertGroupOwnerAuthorized, getGateGroup, revokeGateGroupMember } from "../../domain/gate";
 
 const groupRevokeValidation = {
   body: Joi.object({
@@ -32,8 +27,6 @@ async function revokeGroupMember(req: Request, res: Response): Promise<void> {
 
   const outcome = await revokeGateGroupMember(groupRef, idHash);
   if (outcome.kind === "unknown-group") return throwError({ code: 404, message: GateErrorCode.GROUP_NOT_REGISTERED });
-  // A removed group member loses edit on every doc that accepts this group at edit.
-  await bumpEditGrantEpochForGroupAtEdit(groupRef);
   res.status(204).end();
 }
 
