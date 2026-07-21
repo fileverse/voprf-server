@@ -21,6 +21,7 @@ import groupEnroll from "./group-enroll";
 import groupRevoke from "./group-revoke";
 import groupReinstate from "./group-reinstate";
 import groupDelete from "./group-delete";
+import groupAttachedDocs from "./group-attached-docs";
 import { attach, detach } from "./attach";
 
 const gateRouter = Router();
@@ -45,6 +46,7 @@ gateRouter.post("/group/:groupRef/enroll", asyncHandlerArray(groupEnroll));
 gateRouter.post("/group/:groupRef/revoke", asyncHandlerArray(groupRevoke));
 gateRouter.post("/group/:groupRef/reinstate", asyncHandlerArray(groupReinstate));
 gateRouter.post("/group/:groupRef/delete", asyncHandlerArray(groupDelete));
+gateRouter.post("/group/:groupRef/attached-docs", asyncHandlerArray(groupAttachedDocs));
 gateRouter.post("/doc/:docId/attach", asyncHandlerArray(attach));
 gateRouter.post("/doc/:docId/detach", asyncHandlerArray(detach));
 

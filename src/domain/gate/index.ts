@@ -55,3 +55,5 @@ export { validateVoucherClaims, validateGroupVoucherClaims, bindsToAttestedIdent
 export type { VoucherClaims } from "./enroll-verification";
 export { deriveEditHandle, verifyEditSignatureAndDeriveCommitment } from "./edit-signature";
 export type { EddsaSignature } from "./edit-signature";
+export { mintEditUcan } from "./mint-edit-ucan";
+export { listEditAttachedDocIds } from "./attached-docs";

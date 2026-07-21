@@ -4,12 +4,10 @@
 // proof is intentionally Joi.any: parseProofShape owns ALL proof validation (incl.
 // a missing/non-object proof), so its 400 messages and their position are preserved.
 import { Request, Response } from "express";
-import * as ucans from "@ucans/ucans";
 import { validate, Joi } from "../middleware";
 import { throwError } from "../../infra/error-handler";
 import { GateErrorCode } from "../../infra/gate-errors";
-import { config } from "../../config";
-import { getGateMasterKey, getGateSigningKeypair } from "../../infra/gate-keys";
+import { getGateMasterKey } from "../../infra/gate-keys";
 import {
   assertProofScope,
   assertProofValid,
@@ -21,6 +19,7 @@ import {
   isEditMember,
   listLiveNonces,
   matchNonceByEncodedMessage,
+  mintEditUcan,
   parseProofShape,
   resolveAcceptedRoots,
   verifyEditSignatureAndDeriveCommitment,
@@ -76,24 +75,7 @@ async function releaseGateShare(req: Request, res: Response): Promise<void> {
     };
     const editHandle = deriveEditHandle(commitment, docId);
 
-    let editUcan: string | undefined;
-    const keypair = getGateSigningKeypair();
-    const audience = config.COLLAB_SERVER_DID;
-    if (keypair && audience) {
-      const built = await ucans.build({
-        issuer: keypair,
-        audience,
-        capabilities: [
-          {
-            with: { scheme: "collab", hierPart: docId },
-            can: { namespace: "collab", segments: ["EDIT"] },
-          },
-        ],
-        facts: [{ docId, editHandle }],
-        lifetimeInSeconds: 60 * 60 * 24 * 7,
-      });
-      editUcan = ucans.encode(built);
-    }
+    const editUcan = await mintEditUcan({ docId, editHandle, epoch: doc.currentEpoch });
 
     res.json({ shares, ...(editUcan ? { editUcan, editHandle } : {}) });
     return;
