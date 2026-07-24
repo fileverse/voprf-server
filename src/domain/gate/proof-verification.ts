@@ -31,7 +31,7 @@ export const isCanonicalDecimalBigInt = (value: string): boolean =>
 // EXACT replica of the proof library's string→bigint wrapper (@semaphore-protocol/
 // proof@4.13.1): ethers.toBigInt for decimal/0x-hex, else encodeBytes32String
 // (UTF-8, ≤31 bytes). Unencodable input → 400, never a raw ethers throw.
-const semaphoreBigIntEncode = (value: string): bigint => {
+export const semaphoreBigIntEncode = (value: string): bigint => {
   try {
     return ethersToBigInt(value);
   } catch {

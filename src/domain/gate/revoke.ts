@@ -4,7 +4,7 @@ import { GateDoc } from "../../infra/database/models";
 import { getGateDoc } from "./get";
 
 export type RevokeOutcome =
-  | { kind: "ok" }
+  | { kind: "ok"; wasEdit: boolean; commitment?: string }
   | { kind: "stale-epoch"; currentEpoch: number }
   | { kind: "unknown-doc" };
 
@@ -28,6 +28,7 @@ export const revokeGateMember = async (
     if (targetEpoch < doc.currentEpoch) return { kind: "stale-epoch", currentEpoch: doc.currentEpoch };
 
     const binding = doc.bindings.find((b) => b.idHash === idHash);
+    const wasEdit = binding?.role === "edit";
     const filter: Record<string, unknown> = { docId, currentEpoch: { $lte: targetEpoch } };
     const update: Record<string, unknown> = { $set: { currentEpoch: targetEpoch } };
     if (binding) {
@@ -52,7 +53,7 @@ export const revokeGateMember = async (
       update.$addToSet = { revokedIdHashes: idHash };
     }
     const result = await GateDoc.updateOne(filter, update);
-    if (result.matchedCount === 1) return { kind: "ok" };
+    if (result.matchedCount === 1) return { kind: "ok", wasEdit, commitment: binding?.commitment };
     // Missed: epoch advanced past target, or the binding drifted — re-read decides.
   }
   throw new Error("gate: revoke contention — retry");

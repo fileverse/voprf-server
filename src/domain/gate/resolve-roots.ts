@@ -6,6 +6,7 @@
 // contribute the "0" root, which is filtered out (an empty group can't be proven).
 import { computeGroupRoot } from "./group";
 import { getGateGroup } from "./group-get";
+import { ROLE_RANK, membersForRole } from "./roles";
 import type { GateDocRecord } from "../../infra/database/models";
 import type { GateRole } from "./share-derivation";
 
@@ -13,12 +14,6 @@ export interface AcceptedRootEntry {
   root: string;
   role: GateRole;
 }
-
-/** Commitments whose binding role === role (the doc's role-filtered member subset). */
-const membersForRole = (doc: GateDocRecord, role: GateRole): string[] =>
-  doc.members.filter((c) =>
-    doc.bindings.some((b) => b.commitment === c && b.role === role)
-  );
 
 export const resolveAcceptedRoots = async (
   doc: GateDocRecord
@@ -36,11 +31,11 @@ export const resolveAcceptedRoots = async (
     if (root !== "0") entries.push({ root, role });
   }
   // Dedupe by root. If two entries share a root (degenerate: identical member sets),
-  // keep the HIGHER role (comment ⊇ view) so a match is never under-privileged.
+  // keep the HIGHER role (edit ⊇ comment ⊇ view) so a match is never under-privileged.
   const byRoot = new Map<string, GateRole>();
   for (const { root, role } of entries) {
     const prev = byRoot.get(root);
-    if (!prev || (prev === "view" && role === "comment")) byRoot.set(root, role);
+    if (!prev || ROLE_RANK[role] > ROLE_RANK[prev]) byRoot.set(root, role);
   }
   return [...byRoot.entries()].map(([root, role]) => ({ root, role }));
 };

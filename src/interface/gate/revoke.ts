@@ -4,7 +4,13 @@ import { Request, Response } from "express";
 import { validate, Joi } from "../middleware";
 import { throwError } from "../../infra/error-handler";
 import { GateErrorCode } from "../../infra/gate-errors";
-import { assertCollaboratorAuthorized, getGateDoc, revokeGateMember } from "../../domain/gate";
+import {
+  assertCollaboratorAuthorized,
+  assertDocOwnerIdentity,
+  deriveEditHandle,
+  getGateDoc,
+  revokeGateMember,
+} from "../../domain/gate";
 import { docIdField } from "./validation";
 
 const revokeValidation = {
@@ -12,16 +18,18 @@ const revokeValidation = {
     docId: docIdField(),
     idHash: Joi.string().required(),
     ownerUcan: Joi.string().required(),
+    identityUcan: Joi.string(),
     epoch: Joi.number().integer().min(1).max(Number.MAX_SAFE_INTEGER).required(),
     addToDenylist: Joi.boolean().optional(),
   }),
 };
 
 async function revokeMember(req: Request, res: Response): Promise<void> {
-  const { docId, idHash, ownerUcan, epoch, addToDenylist } = req.body as {
+  const { docId, idHash, ownerUcan, identityUcan, epoch, addToDenylist } = req.body as {
     docId: string;
     idHash: string;
     ownerUcan: string;
+    identityUcan?: string;
     epoch: number;
     addToDenylist?: boolean;
   };
@@ -30,6 +38,7 @@ async function revokeMember(req: Request, res: Response): Promise<void> {
   if (!doc) return throwError({ code: 404, message: GateErrorCode.DOC_NOT_REGISTERED });
 
   await assertCollaboratorAuthorized(ownerUcan, docId, doc.anchorRef);
+  await assertDocOwnerIdentity(identityUcan, doc);
 
   const outcome = await revokeGateMember(docId, idHash, epoch, addToDenylist ?? true);
   if (outcome.kind === "unknown-doc") return throwError({ code: 404, message: GateErrorCode.DOC_NOT_REGISTERED });
@@ -39,7 +48,9 @@ async function revokeMember(req: Request, res: Response): Promise<void> {
       message: GateErrorCode.STALE_EPOCH,
     });
   }
-  res.status(204).end();
+  const evictedHandles =
+    outcome.kind === "ok" && outcome.wasEdit && outcome.commitment ? [deriveEditHandle(outcome.commitment, docId)] : [];
+  res.json({ evictedHandles });
 }
 
 // convert:false: epoch must arrive as a JSON number.

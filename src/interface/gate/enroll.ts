@@ -52,10 +52,7 @@ async function enrollMember(req: Request, res: Response): Promise<void> {
     return throwError({ code: 403, message: GateErrorCode.IDENTITY_REVOKED });
   }
   if (outcome === "pin-conflict") {
-    return throwError({
-      code: 409,
-      message: GateErrorCode.COMMITMENT_PINNED,
-    });
+    return throwError({ code: 409, message: GateErrorCode.COMMITMENT_PINNED });
   }
   res.status(204).end();
 }

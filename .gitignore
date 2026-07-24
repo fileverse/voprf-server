@@ -67,3 +67,6 @@ development.env
 
 # dist
 dist/
+
+# graphify knowledge-graph build output (regenerable; rebuilt by the post-commit hook)
+graphify-out/

@@ -30,10 +30,14 @@ async function shareGateShare(req: Request, res: Response): Promise<void> {
   if (!doc) return throwError({ code: 404, message: GateErrorCode.DOC_NOT_REGISTERED });
 
   await assertCollaboratorAuthorized(ownerUcan, docId, doc.anchorRef);
+  // The owner receives all three shares so publish can wrap the roomKey under the
+  // edit share (wrappedRoomKey) alongside fileKey/commentKey. Shares are
+  // deterministic PRF outputs; the owner is authorized, so returning edit is safe.
   res.json({
     shares: {
       view: deriveGateShare(masterKey, doc.anchorRef, epoch, "view"),
       comment: deriveGateShare(masterKey, doc.anchorRef, epoch, "comment"),
+      edit: deriveGateShare(masterKey, doc.anchorRef, epoch, "edit"),
     },
   });
 }

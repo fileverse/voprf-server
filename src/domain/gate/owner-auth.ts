@@ -13,7 +13,8 @@ import {
 } from "../../infra/chain/portal-reader";
 import { throwError } from "../../infra/error-handler";
 import { GateErrorCode } from "../../infra/gate-errors";
-import type { GateAnchorRef } from "../../infra/database/models";
+import type { GateAnchorRef, GateDocRecord } from "../../infra/database/models";
+import { verifyIdentityUcan } from "./identity-ucan";
 
 export type GateAbilitySegment = "ADMIN" | "INVITE";
 
@@ -171,6 +172,32 @@ export const assertIssuerIsOnChainPortalOwner = async (
   const ownerDid = await readOnChainPortalOwnerDid(anchorRef);
   if (issuerDid !== ownerDid) {
     throwError({ code: 403, message });
+  }
+};
+
+/**
+ * Doc-CREATOR identity cross-check, layered on top of assertCollaboratorAuthorized. A
+ * team's collaborators share one on-chain credential, so collaborator-auth alone lets ANY
+ * member run a doc's owner-ops; this narrows the doc-scoped ops to the individual whose
+ * identity contract was bound at first register. The caller proves control of that contract
+ * with a gate-audienced identity UCAN (verifyIdentityUcan).
+ *
+ * Legacy docs (registered before the binding, ownerIdentityContract absent) pass on
+ * collaborator-auth alone — no regression. Both addresses are lowercase-canonical
+ * (register stores lowercased; verifyIdentityUcan returns lowercased).
+ *
+ * NOTE: creator-only for now. A workspace-admin arm is deferred — the shared workspace
+ * credential can't distinguish an admin from a member on-chain until the collaborator
+ * contract is wired, so an admin currently cannot run these ops on a member-created doc.
+ */
+export const assertDocOwnerIdentity = async (
+  identityUcan: string | undefined,
+  doc: GateDocRecord
+): Promise<void> => {
+  if (!doc.ownerIdentityContract) return; // legacy doc: collaborator-auth only
+  const identity = identityUcan ? await verifyIdentityUcan(identityUcan) : null;
+  if (identity?.identityContractAddress !== doc.ownerIdentityContract) {
+    throwError({ code: 403, message: GateErrorCode.NOT_DOC_OWNER });
   }
 };
 

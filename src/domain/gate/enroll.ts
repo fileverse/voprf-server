@@ -2,8 +2,15 @@
 // to a status); no throwError here.
 import { GateDoc } from "../../infra/database/models";
 import { getGateDoc } from "./get";
+import { capRole, maxRoleForCommitment } from "./roles";
+import type { GateRole } from "./share-derivation";
 
-export type EnrollOutcome = "added" | "noop" | "relabeled" | "pin-conflict" | "unknown-doc" | "revoked";
+export type EnrollOutcome =
+  | "added"
+  | "noop"
+  | "pin-conflict"
+  | "unknown-doc"
+  | "revoked";
 
 /**
  * PIN+ADD. The update filter excludes docs already binding this idHash (and already
@@ -20,26 +27,22 @@ export const appendEnrollment = async (
     const doc = await getGateDoc(docId);
     if (!doc) return "unknown-doc";
     if ((doc.revokedIdHashes ?? []).includes(idHash)) return "revoked";
+
+    // Self-enroll NEVER raises a role. An existing binding is a pure noop
+    // (or pin-conflict); role changes are owner-authenticated (/relabel) only.
     const bound = doc.bindings.find((b) => b.idHash === idHash);
     if (bound) {
-      if (bound.commitment !== commitment) return "pin-conflict";
-      if (bound.role === role) return "noop";
-      // Same identity, role changed (tier switch / role change): relabel the binding,
-      // moving the member between the view/comment role-filtered sets (no member churn,
-      // commitment unchanged). $elemMatch pins the exact (idHash, commitment) binding.
-      const relabel = await GateDoc.updateOne(
-        { docId, bindings: { $elemMatch: { idHash, commitment } } },
-        { $set: { "bindings.$.role": role } },
-        { runValidators: true }
-      );
-      if (relabel.modifiedCount === 1) return "relabeled";
-      continue; // raced with a concurrent mutation — re-read
+      return bound.commitment === commitment ? "noop" : "pin-conflict";
     }
 
-    // Same Privy user via a second identifier reuses their commitment: append the
-    // binding only, never a duplicate member. The memberAlready arm requires
-    // membership so a concurrent revoke that pulled it forces a re-read.
+    // New idHash. A second idHash for an already-enrolled commitment is capped at
+    // that commitment's current max role, so a demoted member's stale higher-role
+    // voucher on a fresh identifier cannot re-raise the commitment (gp-semaphore §demote).
     const memberAlready = doc.members.includes(commitment);
+    const effectiveRole = memberAlready
+      ? capRole(role as GateRole, maxRoleForCommitment(doc, commitment))
+      : role;
+
     const filter: Record<string, unknown> = {
       docId,
       "bindings.idHash": { $ne: idHash },
@@ -47,12 +50,10 @@ export const appendEnrollment = async (
       ...(memberAlready ? { members: commitment } : { members: { $ne: commitment } }),
     };
     const update = memberAlready
-      ? { $push: { bindings: { idHash, commitment, role } } }
-      : { $push: { bindings: { idHash, commitment, role }, members: commitment } };
-    // runValidators: this is the sole path that writes commitments.
+      ? { $push: { bindings: { idHash, commitment, role: effectiveRole } } }
+      : { $push: { bindings: { idHash, commitment, role: effectiveRole }, members: commitment } };
     const result = await GateDoc.updateOne(filter, update, { runValidators: true });
     if (result.modifiedCount === 1) return "added";
-    // Raced with another enroll — next pass re-reads and terminates.
   }
   throw new Error("gate: enrollment contention — retry");
 };

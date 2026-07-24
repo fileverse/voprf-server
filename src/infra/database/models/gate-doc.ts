@@ -10,7 +10,7 @@ export interface GateAnchorRef {
 
 export interface GateAcceptedRoot {
   groupRef: string;
-  role: "view" | "comment";
+  role: "view" | "comment" | "edit";
 }
 
 export interface GateBinding {
@@ -29,6 +29,10 @@ export interface GateDocRecord {
   bindings: GateBinding[];
   /** idHashes evicted by /revoke; refused at /enroll until /reinstate lifts them. */
   revokedIdHashes: string[];
+  /** lowercase 0x identity-module address of the doc CREATOR, captured immutably at first
+   *  register. When set, doc-scoped owner-ops additionally require a matching identity UCAN
+   *  (assertDocOwnerIdentity); absent ⇒ legacy doc, collaborator-auth only. */
+  ownerIdentityContract?: string;
 }
 
 const AnchorRefSchema = new Schema<GateAnchorRef>(
@@ -58,6 +62,7 @@ const GateDocSchema = new Schema<GateDocRecord>(
       },
     ],
     revokedIdHashes: { type: [String], default: [] },
+    ownerIdentityContract: { type: String, required: false },
   },
   { collection: "gate_docs", minimize: false }
 );

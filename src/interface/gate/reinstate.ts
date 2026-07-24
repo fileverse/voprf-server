@@ -3,7 +3,7 @@ import { Request, Response } from "express";
 import { validate, Joi } from "../middleware";
 import { throwError } from "../../infra/error-handler";
 import { GateErrorCode } from "../../infra/gate-errors";
-import { assertCollaboratorAuthorized, getGateDoc, reinstateGateMember } from "../../domain/gate";
+import { assertCollaboratorAuthorized, assertDocOwnerIdentity, getGateDoc, reinstateGateMember } from "../../domain/gate";
 import { docIdField } from "./validation";
 
 const reinstateValidation = {
@@ -11,20 +11,23 @@ const reinstateValidation = {
     docId: docIdField(),
     idHash: Joi.string().required(),
     ownerUcan: Joi.string().required(),
+    identityUcan: Joi.string(),
   }),
 };
 
 async function reinstateMember(req: Request, res: Response): Promise<void> {
-  const { docId, idHash, ownerUcan } = req.body as {
+  const { docId, idHash, ownerUcan, identityUcan } = req.body as {
     docId: string;
     idHash: string;
     ownerUcan: string;
+    identityUcan?: string;
   };
 
   const doc = await getGateDoc(docId);
   if (!doc) return throwError({ code: 404, message: GateErrorCode.DOC_NOT_REGISTERED });
 
   await assertCollaboratorAuthorized(ownerUcan, docId, doc.anchorRef);
+  await assertDocOwnerIdentity(identityUcan, doc);
 
   const outcome = await reinstateGateMember(docId, idHash);
   if (outcome.kind === "unknown-doc") return throwError({ code: 404, message: GateErrorCode.DOC_NOT_REGISTERED });

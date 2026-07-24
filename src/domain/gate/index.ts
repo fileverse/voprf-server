@@ -2,14 +2,15 @@
 export { getGateDoc } from "./get";
 export { registerGateDoc } from "./register";
 export type { RegisterOutcome } from "./register";
+export { verifyIdentityUcan } from "./identity-ucan";
 export { appendEnrollment } from "./enroll";
 export type { EnrollOutcome } from "./enroll";
 export { revokeGateMember } from "./revoke";
 export type { RevokeOutcome } from "./revoke";
 export { reinstateGateMember } from "./reinstate";
 export type { ReinstateOutcome } from "./reinstate";
-export { relabelMemberRole } from "./relabel";
-export type { RelabelOutcome } from "./relabel";
+export { relabelMemberRole, relabelMembersRole } from "./relabel";
+export type { RelabelOutcome, RelabelBulkOutcome } from "./relabel";
 export { computeGroupRoot } from "./group";
 export { createGateNonce, listLiveNonces, consumeGateNonce } from "./nonce";
 export { deriveGateShare } from "./share-derivation";
@@ -40,10 +41,12 @@ export { attachGroupToDoc, detachGroupFromDoc } from "./group-attach";
 export type { AttachOutcome } from "./group-attach";
 export { resolveAcceptedRoots } from "./resolve-roots";
 export type { AcceptedRootEntry } from "./resolve-roots";
+export * from "./roles";
 export {
   validateGateUcan,
   assertOwnerAuthorized,
   assertCollaboratorAuthorized,
+  assertDocOwnerIdentity,
   assertIssuerIsPortalCollaborator,
   assertIssuerIsOnChainOwner,
   assertIssuerIsOnChainPortalOwner,
@@ -52,3 +55,7 @@ export {
 export type { GateAbilitySegment, ValidatedGateUcan } from "./owner-auth";
 export { validateVoucherClaims, validateGroupVoucherClaims, bindsToAttestedIdentifier } from "./enroll-verification";
 export type { VoucherClaims } from "./enroll-verification";
+export { deriveEditHandle, verifyEditSignatureAndDeriveCommitment } from "./edit-signature";
+export type { EddsaSignature } from "./edit-signature";
+export { mintEditUcan } from "./mint-edit-ucan";
+export { listEditAttachedDocIds } from "./attached-docs";

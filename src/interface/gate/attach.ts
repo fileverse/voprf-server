@@ -5,8 +5,10 @@ import { throwError } from "../../infra/error-handler";
 import { GateErrorCode } from "../../infra/gate-errors";
 import {
   assertCollaboratorAuthorized,
+  assertDocOwnerIdentity,
   attachGroupToDoc,
   detachGroupFromDoc,
+  deriveEditHandle,
   getGateDoc,
   getGateGroup,
 } from "../../domain/gate";
@@ -16,17 +18,19 @@ import { groupRefField } from "./validation";
 const attachValidation = {
   body: Joi.object({
     groupRef: groupRefField(),
-    role: Joi.string().valid("view", "comment").required(),
+    role: Joi.string().valid("view", "comment", "edit").required(),
     ownerUcan: Joi.string().required(),
+    identityUcan: Joi.string(),
   }),
 };
 
 async function attachGroup(req: Request, res: Response): Promise<void> {
   const docId = req.params.docId;
-  const { groupRef, role, ownerUcan } = req.body as {
+  const { groupRef, role, ownerUcan, identityUcan } = req.body as {
     groupRef: string;
     role: GateAcceptedRoot["role"];
     ownerUcan: string;
+    identityUcan?: string;
   };
 
   const doc = await getGateDoc(docId);
@@ -35,6 +39,7 @@ async function attachGroup(req: Request, res: Response): Promise<void> {
   // Any portal collaborator authorizes the attach (the doc's acceptedRoots is
   // what changes); the owner is a collaborator too.
   await assertCollaboratorAuthorized(ownerUcan, docId, doc.anchorRef);
+  await assertDocOwnerIdentity(identityUcan, doc);
 
   const group = await getGateGroup(groupRef);
   if (!group) return throwError({ code: 404, message: GateErrorCode.GROUP_NOT_REGISTERED });
@@ -55,24 +60,32 @@ const detachValidation = {
   body: Joi.object({
     groupRef: groupRefField(),
     ownerUcan: Joi.string().required(),
+    identityUcan: Joi.string(),
   }),
 };
 
 async function detachGroup(req: Request, res: Response): Promise<void> {
   const docId = req.params.docId;
-  const { groupRef, ownerUcan } = req.body as {
+  const { groupRef, ownerUcan, identityUcan } = req.body as {
     groupRef: string;
     ownerUcan: string;
+    identityUcan?: string;
   };
 
   const doc = await getGateDoc(docId);
   if (!doc) return throwError({ code: 404, message: GateErrorCode.DOC_NOT_REGISTERED });
 
   await assertCollaboratorAuthorized(ownerUcan, docId, doc.anchorRef);
+  await assertDocOwnerIdentity(identityUcan, doc);
+
+  // Read the pre-mutation role from the doc already in scope to detect a detach-from-edit.
+  const detachedRole = doc.acceptedRoots.find((r) => r.groupRef === groupRef)?.role;
 
   const outcome = await detachGroupFromDoc(docId, groupRef);
   if (outcome.kind === "unknown-doc") return throwError({ code: 404, message: GateErrorCode.DOC_NOT_REGISTERED });
-  res.status(204).end();
+  const group = detachedRole === "edit" ? await getGateGroup(groupRef) : null;
+  const evictedHandles = group ? group.members.map((c) => deriveEditHandle(c, docId)) : [];
+  res.json({ evictedHandles });
 }
 
 // convert:false: uniform with the other gate schemas. docId arrives as a path param

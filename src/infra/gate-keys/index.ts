@@ -1,6 +1,8 @@
+import * as ucans from "@ucans/ucans";
 import { config } from "../../config";
 
 let masterKeyPrivate: Buffer | undefined;
+let signingKeypair: ucans.EdKeypair | undefined;
 let loaded = false;
 
 const parseMasterKey = (raw: string | undefined): Buffer | undefined => {
@@ -12,15 +14,35 @@ const parseMasterKey = (raw: string | undefined): Buffer | undefined => {
   return key;
 };
 
+// The gate's Ed25519 UCAN-signing identity (its FIRST asymmetric key). A missing key is
+// non-fatal — the edit-admission UCAN is simply not minted (release still returns shares);
+// a malformed one throws at boot so a misconfigured deploy fails loudly.
+const parseSigningKey = (raw: string | undefined): ucans.EdKeypair | undefined => {
+  if (!raw) return undefined;
+  return ucans.EdKeypair.fromSecretKey(raw);
+};
+
 export const loadGateKeys = (): void => {
   if (loaded) return;
-  // A missing key is non-fatal (gate routes 503 until set); a malformed one throws.
   masterKeyPrivate = parseMasterKey(config.GATE_MASTER_KEY);
+  signingKeypair = parseSigningKey(config.GATE_SIGNING_KEY);
   loaded = true;
 };
 
-/** The single master key, or undefined if GATE_MASTER_KEY is unset. The only key egress. */
+/** The single master key, or undefined if GATE_MASTER_KEY is unset. The only HMAC key egress. */
 export const getGateMasterKey = (): Buffer | undefined => {
   loadGateKeys();
   return masterKeyPrivate;
+};
+
+/** The gate's UCAN-signing keypair, or undefined if GATE_SIGNING_KEY is unset. */
+export const getGateSigningKeypair = (): ucans.EdKeypair | undefined => {
+  loadGateKeys();
+  return signingKeypair;
+};
+
+/** The gate's DID (did:key), or undefined if unconfigured. */
+export const getGateSigningDid = (): string | undefined => {
+  loadGateKeys();
+  return signingKeypair?.did();
 };

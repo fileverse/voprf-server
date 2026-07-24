@@ -16,7 +16,7 @@ export interface VoucherClaims {
   groupRef: string;
   salt: string;
   idHash: string;
-  role: "view" | "comment";
+  role: "view" | "comment" | "edit";
   actorAddress?: string;
 }
 
@@ -40,7 +40,7 @@ export const validateVoucherClaims = async (
   if (typeof salt !== "string" || typeof idHash !== "string") {
     return throwError({ code: 403, message: GateErrorCode.INVALID_VOUCHER });
   }
-  if (role !== "view" && role !== "comment") {
+  if (role !== "view" && role !== "comment" && role !== "edit") {
     return throwError({ code: 403, message: GateErrorCode.INVALID_VOUCHER_ROLE });
   }
   const actorAddress = typeof fact.actorAddress === "string" ? fact.actorAddress : undefined;
@@ -71,7 +71,7 @@ export const validateGroupVoucherClaims = async (
   if (typeof salt !== "string" || typeof idHash !== "string") {
     return throwError({ code: 403, message: GateErrorCode.INVALID_VOUCHER });
   }
-  if (role !== "view" && role !== "comment") {
+  if (role !== "view" && role !== "comment" && role !== "edit") {
     return throwError({ code: 403, message: GateErrorCode.INVALID_VOUCHER_ROLE });
   }
   return { issuerDid, claims: { docId: "", groupRef, salt, idHash, role } };
