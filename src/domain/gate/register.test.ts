@@ -89,6 +89,43 @@ describe("registerGateDoc", () => {
     });
   });
 
+  it("captures ownerIdentityContract (lowercased) on first create", async () => {
+    findOneLean.mockResolvedValue(null);
+    create.mockResolvedValue(undefined);
+
+    await registerGateDoc("doc-1", anchor, docOwnRoots, "0xABCdef0000000000000000000000000000000009");
+
+    expect(create).toHaveBeenCalledWith({
+      docId: "doc-1",
+      anchorRef: anchor,
+      acceptedRoots: docOwnRoots,
+      currentEpoch: 0,
+      members: [],
+      bindings: [],
+      ownerIdentityContract: "0xabcdef0000000000000000000000000000000009",
+    });
+  });
+
+  it("does NOT overwrite ownerIdentityContract on a same-anchor re-register (immutable binding)", async () => {
+    findOneLean.mockResolvedValue({
+      docId: "doc-1",
+      anchorRef: anchor,
+      acceptedRoots: [{ groupRef: "doc-1", role: "view" }],
+      currentEpoch: 2,
+      ownerIdentityContract: "0xoriginal000000000000000000000000000000001",
+    });
+    findOneAndUpdateLean.mockResolvedValue({ currentEpoch: 2 });
+
+    await registerGateDoc("doc-1", anchor, docOwnRoots, "0xATTACKER00000000000000000000000000000000");
+
+    // The $set carries only acceptedRoots — never ownerIdentityContract.
+    expect(findOneAndUpdate).toHaveBeenCalledWith(
+      { docId: "doc-1" },
+      { $set: { acceptedRoots: docOwnRoots } },
+      { new: true }
+    );
+  });
+
   it("rejects a different anchor (first-writer-wins)", async () => {
     findOneLean.mockResolvedValue({
       docId: "doc-1",

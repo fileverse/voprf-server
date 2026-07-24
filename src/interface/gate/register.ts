@@ -4,8 +4,9 @@ import { Request, Response } from "express";
 import { validate, Joi } from "../middleware";
 import { throwError } from "../../infra/error-handler";
 import { GateErrorCode } from "../../infra/gate-errors";
+import { logger } from "../../logger";
 import { getGateMasterKey } from "../../infra/gate-keys";
-import { assertCollaboratorAuthorized, getGateGroup, registerGateDoc } from "../../domain/gate";
+import { assertCollaboratorAuthorized, getGateGroup, registerGateDoc, verifyIdentityUcan } from "../../domain/gate";
 import type { GateAcceptedRoot, GateAnchorRef } from "../../infra/database/models";
 import { docIdField } from "./validation";
 
@@ -31,15 +32,19 @@ const registerValidation = {
       .min(1)
       .required(),
     ownerUcan: Joi.string().required(),
+    // Optional: binds the doc to the creator's identity contract (immutable). Legacy
+    // clients omit it → the doc stays collaborator-auth only (no identity enforcement).
+    identityUcan: Joi.string(),
   }),
 };
 
 async function registerDoc(req: Request, res: Response): Promise<void> {
-  const { docId, acceptedRoots, ownerUcan, anchorRef } = req.body as {
+  const { docId, acceptedRoots, ownerUcan, anchorRef, identityUcan } = req.body as {
     docId: string;
     acceptedRoots: GateAcceptedRoot[];
     ownerUcan: string;
     anchorRef: GateAnchorRef;
+    identityUcan?: string;
   };
 
   // Fail closed: every accepted root must reference THIS doc's own implicit group
@@ -76,7 +81,18 @@ async function registerDoc(req: Request, res: Response): Promise<void> {
   // Owner-auth against the SUPPLIED anchor (no stored row yet).
   await assertCollaboratorAuthorized(ownerUcan, docId, anchor);
 
-  const outcome = await registerGateDoc(docId, anchor, acceptedRoots);
+  // Capture the creator's identity binding at first-write (immutable in registerGateDoc). A
+  // present-but-invalid proof fails safe to no binding (the doc stays legacy) rather than
+  // blocking doc creation — the creator owns the anchor, so a captured value is genuinely theirs.
+  const identity = identityUcan ? await verifyIdentityUcan(identityUcan) : null;
+  if (identityUcan && !identity) {
+    // A present-but-unresolved proof means either an invalid UCAN or a transient on-chain
+    // read failure. Either way the doc registers UNBOUND and the binding is immutable, so the
+    // gap is permanent — log it so a silent "enforces nothing forever" doc is observable.
+    logger.warn({ docId }, "gate/register: identityUcan present but not captured — doc registers unbound");
+  }
+
+  const outcome = await registerGateDoc(docId, anchor, acceptedRoots, identity?.identityContractAddress);
   if (outcome.kind === "anchor-mismatch") {
     return throwError({
       code: 409,

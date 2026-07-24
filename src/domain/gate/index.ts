@@ -2,6 +2,7 @@
 export { getGateDoc } from "./get";
 export { registerGateDoc } from "./register";
 export type { RegisterOutcome } from "./register";
+export { verifyIdentityUcan } from "./identity-ucan";
 export { appendEnrollment } from "./enroll";
 export type { EnrollOutcome } from "./enroll";
 export { revokeGateMember } from "./revoke";
@@ -45,6 +46,7 @@ export {
   validateGateUcan,
   assertOwnerAuthorized,
   assertCollaboratorAuthorized,
+  assertDocOwnerIdentity,
   assertIssuerIsPortalCollaborator,
   assertIssuerIsOnChainOwner,
   assertIssuerIsOnChainPortalOwner,

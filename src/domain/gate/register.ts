@@ -26,13 +26,24 @@ const sameAnchor = (a: GateAnchorRef, b: GateAnchorRef): boolean =>
 export const registerGateDoc = async (
   docId: string,
   anchorRef: GateAnchorRef,
-  acceptedRoots: GateAcceptedRoot[]
+  acceptedRoots: GateAcceptedRoot[],
+  ownerIdentityContract?: string
 ): Promise<RegisterOutcome> => {
   const docOwnRoots = acceptedRoots.filter((r) => r.groupRef === docId);
   let existing = await getGateDoc(docId);
   if (!existing) {
     try {
-      await GateDoc.create({ docId, anchorRef, acceptedRoots: docOwnRoots, currentEpoch: 0, members: [], bindings: [] });
+      // ownerIdentityContract is written ONCE at create and never on refresh (see below), so
+      // the creator's identity binding is immutable — a later re-register cannot rebind it.
+      await GateDoc.create({
+        docId,
+        anchorRef,
+        acceptedRoots: docOwnRoots,
+        currentEpoch: 0,
+        members: [],
+        bindings: [],
+        ...(ownerIdentityContract ? { ownerIdentityContract: ownerIdentityContract.toLowerCase() } : {}),
+      });
       return { kind: "ok", currentEpoch: 0 };
     } catch (error) {
       // E11000 — lost a create race; fall through to the existing-doc path.
