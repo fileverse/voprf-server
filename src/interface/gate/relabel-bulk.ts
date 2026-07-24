@@ -7,11 +7,13 @@ import { GateErrorCode } from "../../infra/gate-errors";
 import { assertCollaboratorAuthorized, assertDocOwnerIdentity, getGateDoc, relabelMembersRole } from "../../domain/gate";
 import { docIdField } from "./validation";
 
-const relabelBulkValidation = {
+export const relabelBulkValidation = {
   body: Joi.object({
     docId: docIdField(),
     idHashes: Joi.array().items(Joi.string()).min(1).required(),
-    newRole: Joi.string().valid("view", "comment", "edit").required(),
+    // Bulk relabel emits no eviction handles / epoch bump, so it must never
+    // grant edit (that would be an un-rotated promote). edit-permission-open-items.md M5.
+    newRole: Joi.string().valid("view", "comment").required(),
     ownerUcan: Joi.string().required(),
     identityUcan: Joi.string(),
   }),
