@@ -43,7 +43,7 @@ export const verifyEditSignatureAndDeriveCommitment = (
 };
 
 // Per-doc actor handle, embedded in the editUcan and returned to the editor in the
-// /release response (edit-permission.md §5). The gate always re-derives it server-side
-// (verifyEditUcan) rather than trusting any client-sent value.
+// /release response. The gate always re-derives it server-side (verifyEditUcan)
+// rather than trusting any client-sent value.
 export const deriveEditHandle = (commitment: string, docId: string): string =>
   poseidon2([BigInt(commitment), semaphoreBigIntEncode(docId)]).toString();

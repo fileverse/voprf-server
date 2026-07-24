@@ -12,7 +12,7 @@ export const relabelBulkValidation = {
     docId: docIdField(),
     idHashes: Joi.array().items(Joi.string()).min(1).required(),
     // Bulk relabel emits no eviction handles / epoch bump, so it must never
-    // grant edit (that would be an un-rotated promote). edit-permission-open-items.md M5.
+    // grant edit (that would be an un-rotated promote).
     newRole: Joi.string().valid("view", "comment").required(),
     ownerUcan: Joi.string().required(),
     identityUcan: Joi.string(),

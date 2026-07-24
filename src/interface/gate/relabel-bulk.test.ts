@@ -3,8 +3,7 @@ import { relabelBulkValidation } from "./relabel-bulk";
 
 // /relabel-bulk is changeTier's bulk role switch. Unlike single /relabel it
 // emits no eviction handles and no epoch bump, so accepting "edit" here would
-// grant edit with no rotation. The schema must reject it. See
-// edit-permission-open-items.md M5.
+// grant edit with no rotation — the schema must reject it.
 describe("relabel-bulk validation", () => {
   const validate = (newRole: string) =>
     relabelBulkValidation.body.validate({
