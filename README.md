@@ -4,6 +4,8 @@ A VOPRF (Verifiable Oblivious Pseudorandom Function) server implementation built
 
 This server implements the VOPRF protocol as defined in [RFC 9497](https://doi.org/10.17487/RFC9497) using the [Cloudflare VOPRF-TS library](https://github.com/cloudflare/voprf-ts).
 
+**Update:** Alongside the original VOPRF endpoints, this server now also hosts the access gate used by [dDocs](https://ddocs.new) for private document sharing, under `/gate`. When a document is shared privately, the owner registers it with the gate along with the people (or reusable groups) allowed to open it. Each of those people then proves they are on that list using a [Semaphore](https://semaphore.pse.dev) zero-knowledge proof, and only then does the gate release its share of the document's encryption key. The gate enforces roles (view, comment, edit), supports revoking and reinstating individual access, and issues the credentials that admit editors into live collaboration sessions — but it only ever holds one of the two shares needed to reconstruct a document key, so the server on its own can never read the documents it protects.
+
 ## Setup
 
 1. Install dependencies:
