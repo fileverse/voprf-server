@@ -5,7 +5,8 @@ import helmet from "helmet";
 import { getPublicKey, blindEvaluate } from "./voprf/routes";
 import { gateRouter } from "./interface/gate";
 import { expressErrorHandler } from "./infra/error-handler";
-
+import { getMemoryStats } from "./infra/memory";
+import { memoryLogger } from "./infra/memoryLogger";
 // Express App
 const app = express();
 
@@ -15,6 +16,7 @@ app.use(express.urlencoded({ extended: false }));
 // parse application/json
 app.use(express.json());
 
+app.use(memoryLogger);
 // Use default logger for now
 
 app.use(
@@ -34,6 +36,7 @@ app.use("/ping", function (req: Request, res: Response) {
   res.json({ reply: "pong" });
   res.end();
 });
+app.get("/internal/memory", getMemoryStats);
 
 // VOPRF endpoints
 app.get("/voprf/public-key", getPublicKey);
