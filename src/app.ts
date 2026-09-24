@@ -4,6 +4,7 @@ import cors from "cors";
 import helmet from "helmet";
 import { getPublicKey, blindEvaluate } from "./voprf/routes";
 import { gateRouter } from "./interface/gate";
+import { vaultRouter } from "./interface/vault";
 import { expressErrorHandler } from "./infra/error-handler";
 
 // Express App
@@ -18,14 +19,18 @@ app.use(express.json());
 // Use default logger for now
 
 app.use(
-  cors({
-    origin: "*",
-  })
-);
-app.use(
   helmet({
     contentSecurityPolicy: false,
     frameguard: false,
+  })
+);
+
+// Before the global wildcard CORS: /vault needs a credentialed origin allowlist.
+app.use("/vault", vaultRouter);
+
+app.use(
+  cors({
+    origin: "*",
   })
 );
 

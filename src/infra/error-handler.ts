@@ -12,6 +12,13 @@ interface GateError extends Error {
   code?: number;
 }
 
+// body-parser's own SyntaxError shape: never read `.body` off this, it carries
+// the raw request body and must not reach a log line.
+const isBodyParseError = (err: unknown): boolean =>
+  err instanceof SyntaxError &&
+  (err as { type?: string }).type === "entity.parse.failed" &&
+  typeof (err as { status?: unknown }).status === "number";
+
 /** Build + throw an Error whose `.code` is the HTTP status to return. */
 export const throwError = ({
   code,
@@ -35,6 +42,12 @@ export const expressErrorHandler = (
 ): void => {
   if (err instanceof ValidationError) {
     res.status(err.statusCode || 400).json({ message: err.message });
+    return;
+  }
+  // Malformed JSON body: log only the type, never err.body (the raw request body).
+  if (isBodyParseError(err)) {
+    logger.warn(`gate: malformed request body (${(err as { type?: string }).type})`);
+    res.status(400).json({ message: GateErrorCode.INVALID_REQUEST_BODY });
     return;
   }
   // Failed on-chain read: log the detail, surface a static retryable 503 — never

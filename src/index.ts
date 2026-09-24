@@ -3,6 +3,7 @@ import { config } from "./config";
 import app from "./app";
 import { logger } from "./logger";
 import { loadGateKeys, getGateMasterKey } from "./infra/gate-keys";
+import { loadVaultKeys, getVaultKeyConfig } from "./infra/vault-keys";
 import { connectGateDatastore } from "./infra/database";
 
 const port = config.PORT || 8001;
@@ -13,6 +14,16 @@ async function startServer() {
     loadGateKeys();
     if (!getGateMasterKey()) {
       logger.warn("gate: GATE_MASTER_KEY is not set — /register, /share and /release will respond 503");
+    }
+
+    loadVaultKeys();
+    if (!getVaultKeyConfig()) {
+      logger.warn("vault: GATE_VAULT_KEY unset, /vault disabled");
+    }
+
+    const hasAllowedOrigin = (config.VAULT_ALLOWED_ORIGINS ?? "").split(",").some((o) => o.trim());
+    if (!hasAllowedOrigin) {
+      logger.warn("vault: VAULT_ALLOWED_ORIGINS unset or empty, /vault browser calls will fail CORS");
     }
 
     if (config.MONGO_URI) {

@@ -1,5 +1,7 @@
 import mongoose from "mongoose";
-import { GateDoc, GateGroup, GateNonce } from "./models";
+import { GateDoc, GateGroup, GateNonce, VaultSession, VaultUcanNonce, VaultRateCounter } from "./models";
+import { createMongoVaultStore } from "./vault-store";
+import { setVaultStore } from "../../domain/vault/store";
 import { logger } from "../../logger";
 
 export const isMongoReady = (): boolean => mongoose.connection.readyState === 1;
@@ -13,7 +15,15 @@ export const connectGateDatastore = async (mongoUri: string): Promise<void> => {
       // Unique indexes must exist before traffic (registerGateDoc relies on the docId
       // E11000). createIndexes — NOT Model.init() — re-runs per attempt; init() caches
       // rejections and would wedge the retry loop.
-      await Promise.all([GateDoc.createIndexes(), GateGroup.createIndexes(), GateNonce.createIndexes()]);
+      await Promise.all([
+        GateDoc.createIndexes(),
+        GateGroup.createIndexes(),
+        GateNonce.createIndexes(),
+        VaultSession.createIndexes(),
+        VaultUcanNonce.createIndexes(),
+        VaultRateCounter.createIndexes(),
+      ]);
+      setVaultStore(createMongoVaultStore());
       logger.info("gate: datastore connected");
       return;
     } catch (error) {
