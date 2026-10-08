@@ -27,7 +27,8 @@ export const registerGateDoc = async (
   docId: string,
   anchorRef: GateAnchorRef,
   acceptedRoots: GateAcceptedRoot[],
-  ownerIdentityContract?: string
+  ownerIdentityContract?: string,
+  { ifAbsent = false }: { ifAbsent?: boolean } = {}
 ): Promise<RegisterOutcome> => {
   const docOwnRoots = acceptedRoots.filter((r) => r.groupRef === docId);
   let existing = await getGateDoc(docId);
@@ -52,6 +53,8 @@ export const registerGateDoc = async (
     }
   }
   if (!sameAnchor(existing.anchorRef, anchorRef)) return { kind: "anchor-mismatch" };
+  // ifAbsent pins without refreshing: the stored roots may already be narrowed.
+  if (ifAbsent) return { kind: "ok", currentEpoch: existing.currentEpoch };
   const groupEntries = existing.acceptedRoots.filter((r) => r.groupRef !== docId);
   const updated = await GateDoc.findOneAndUpdate(
     { docId },
