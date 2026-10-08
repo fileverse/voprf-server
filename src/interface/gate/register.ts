@@ -35,16 +35,19 @@ const registerValidation = {
     // Optional: binds the doc to the creator's identity contract (immutable). Legacy
     // clients omit it → the doc stays collaborator-auth only (no identity enforcement).
     identityUcan: Joi.string(),
+    // Create the row if missing; an existing same-anchor row is left untouched.
+    ifAbsent: Joi.boolean(),
   }),
 };
 
 async function registerDoc(req: Request, res: Response): Promise<void> {
-  const { docId, acceptedRoots, ownerUcan, anchorRef, identityUcan } = req.body as {
+  const { docId, acceptedRoots, ownerUcan, anchorRef, identityUcan, ifAbsent } = req.body as {
     docId: string;
     acceptedRoots: GateAcceptedRoot[];
     ownerUcan: string;
     anchorRef: GateAnchorRef;
     identityUcan?: string;
+    ifAbsent?: boolean;
   };
 
   // Fail closed: every accepted root must reference THIS doc's own implicit group
@@ -92,7 +95,7 @@ async function registerDoc(req: Request, res: Response): Promise<void> {
     logger.warn({ docId }, "gate/register: identityUcan present but not captured — doc registers unbound");
   }
 
-  const outcome = await registerGateDoc(docId, anchor, acceptedRoots, identity?.identityContractAddress);
+  const outcome = await registerGateDoc(docId, anchor, acceptedRoots, identity?.identityContractAddress, { ifAbsent });
   if (outcome.kind === "anchor-mismatch") {
     return throwError({
       code: 409,
