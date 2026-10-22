@@ -123,5 +123,6 @@ export const assertProofValid = async (proof: SemaphoreProofShape): Promise<void
     logger.warn("gate: verifyProof threw (mapping to invalid-proof 403)", error);
     valid = false;
   }
+
   if (!valid) throwError({ code: 403, message: GateErrorCode.INVALID_PROOF });
 };
