@@ -6,6 +6,7 @@ const gate = vi.hoisted(() => ({
   getGateGroup: vi.fn(),
   listEditAttachedDocIds: vi.fn(),
   listGroupAttachments: vi.fn(),
+  verifyIdentityUcan: vi.fn(),
 }));
 vi.mock("../../domain/gate", () => gate);
 
@@ -15,8 +16,8 @@ describe("group attachment discovery", () => {
   const anchorRef = { chainId: 1, portalAddress: "portal", fileId: 0 };
   const handle = groupAttachedDocs[1] as (req: Request, res: Response) => Promise<void>;
   const json = vi.fn();
-  const request = (scope?: "all") =>
-    ({ params: { groupRef: "design" }, body: { ownerUcan: "token", scope } }) as unknown as Request;
+  const request = (scope?: "all", identityUcan?: string) =>
+    ({ params: { groupRef: "design" }, body: { ownerUcan: "token", scope, identityUcan } }) as unknown as Request;
   const response = { json } as unknown as Response;
 
   beforeEach(() => {
@@ -37,6 +38,13 @@ describe("group attachment discovery", () => {
     await handle(request("all"), response);
     expect(gate.assertGroupOwnerAuthorized).toHaveBeenCalledWith("token", "design", anchorRef);
     expect(json).toHaveBeenCalledWith({ attachments });
+  });
+
+  it("uses a verified requester identity for ownership hints", async () => {
+    gate.verifyIdentityUcan.mockResolvedValue({ identityContractAddress: "creator" });
+    await handle(request("all", "proof"), response);
+    expect(gate.verifyIdentityUcan).toHaveBeenCalledWith("proof");
+    expect(gate.listGroupAttachments).toHaveBeenCalledWith("design", "creator");
   });
 
   it("does not query attachments when the group-owner proof fails", async () => {
