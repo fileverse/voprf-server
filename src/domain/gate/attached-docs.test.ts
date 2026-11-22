@@ -7,7 +7,7 @@ vi.mock("../../infra/database/models", () => ({
   GateDoc: { find: (...a: unknown[]) => find(...a) },
 }));
 
-import { listEditAttachedDocIds } from "./attached-docs";
+import { listEditAttachedDocIds, listGroupAttachments } from "./attached-docs";
 
 describe("listEditAttachedDocIds", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -25,6 +25,25 @@ describe("listEditAttachedDocIds", () => {
   it("returns an empty array when no doc edit-attaches the group", async () => {
     lean.mockResolvedValue([]);
     expect(await listEditAttachedDocIds("grp-none")).toEqual([]);
+  });
+});
+
+describe("listGroupAttachments", () => {
+  it("returns every attached role, including opaque gate IDs", async () => {
+    lean.mockResolvedValue([
+      { docId: "file-view", acceptedRoots: [{ groupRef: "grp-7", role: "view" }] },
+      { docId: "0xopaque-folder", acceptedRoots: [{ groupRef: "grp-7", role: "comment" }] },
+      { docId: "file-edit", acceptedRoots: [{ groupRef: "grp-7", role: "edit" }] },
+    ]);
+    expect(await listGroupAttachments("grp-7")).toEqual([
+      { gateId: "file-view", role: "view" },
+      { gateId: "0xopaque-folder", role: "comment" },
+      { gateId: "file-edit", role: "edit" },
+    ]);
+    expect(find).toHaveBeenLastCalledWith(
+      { docId: { $ne: "grp-7" }, "acceptedRoots.groupRef": "grp-7" },
+      { docId: 1, acceptedRoots: { $elemMatch: { groupRef: "grp-7" } } }
+    );
   });
 });
 
